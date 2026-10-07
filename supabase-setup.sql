@@ -136,6 +136,57 @@ grant select on public.warranty_branches to authenticated;
 grant select on public.warranty_branch_members to authenticated;
 grant select, update on public.warranty_records to authenticated;
 revoke insert on public.warranty_records from authenticated;
+revoke delete on public.warranty_records from public, anon, authenticated;
+
+create or replace function public.delete_warranty_record(
+  p_record_id uuid,
+  p_password text
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  password_hash text;
+  record_attachment_path text;
+begin
+  if auth.uid() is null then
+    raise exception 'You must be signed in to delete a service slip.';
+  end if;
+
+  if p_password is null or p_password = '' then
+    raise exception 'Enter your account password to confirm deletion.';
+  end if;
+
+  select users.encrypted_password
+  into password_hash
+  from auth.users users
+  where users.id = auth.uid();
+
+  if password_hash is null
+    or extensions.crypt(p_password, password_hash) is distinct from password_hash then
+    raise exception 'The account password is incorrect.' using errcode = '28000';
+  end if;
+
+  delete from public.warranty_records warranty_record
+  using public.warranty_branch_members member
+  where warranty_record.id = p_record_id
+    and member.branch_id = warranty_record.branch_id
+    and member.user_id = auth.uid()
+  returning warranty_record.attachment_path into record_attachment_path;
+
+  if not found then
+    raise exception 'The service slip was not found or you do not have access to it.'
+      using errcode = 'P0002';
+  end if;
+
+  return record_attachment_path;
+end;
+$$;
+
+revoke all on function public.delete_warranty_record(uuid, text) from public, anon;
+grant execute on function public.delete_warranty_record(uuid, text) to authenticated;
 
 create or replace function public.create_warranty_record(
   p_branch_id uuid,

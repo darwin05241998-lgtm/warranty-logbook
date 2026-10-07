@@ -165,6 +165,12 @@
       transition: border-color .15s, background .15s, color .15s;
     }
     .edit-status-button:hover { border-color: #625ba2; background: #29283f; color: #e3e0ff; }
+    .delete-record-button {
+      padding: 6px 9px; border: 1px solid #71414a; border-radius: 7px;
+      background: #302127; color: #f29aa3; font-size: 10px; font-weight: 650;
+      transition: border-color .15s, background .15s, color .15s;
+    }
+    .delete-record-button:hover { border-color: #b65360; background: #42252d; color: #ffc2c8; }
     .attachment-link { display: block; width: fit-content; margin-top: 4px; color: #aaa3ff; font-size: 10px; text-decoration: none; }
     .attachment-link:hover { text-decoration: underline; }
     .empty-state { padding: 50px 20px; color: var(--muted); text-align: center; font-size: 13px; }
@@ -208,7 +214,11 @@
     .secondary-button, .submit-button { min-height: 39px; padding: 0 14px; border-radius: 8px; font-size: 12px; font-weight: 700; }
     .secondary-button { border: 1px solid #e2e6ed; background: white; color: #586476; }
     .submit-button { border: 0; background: var(--accent); color: white; }
+    .danger-button { border: 0; background: #bd3947; color: white; }
+    .danger-button:hover { background: #a52e3b; }
     .submit-button:disabled { opacity: .45; cursor: not-allowed; }
+    .dialog-error { min-height: 17px; margin-top: 11px; color: #f29aa3; font-size: 11px; line-height: 1.4; }
+    .dialog-warning { padding: 11px 13px; border: 1px solid #71414a; border-radius: 8px; background: #302127; color: #f2b6bd; font-size: 12px; line-height: 1.5; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
     .startup {
@@ -339,7 +349,7 @@
       .record-row > :nth-child(3) { grid-column: 2; grid-row: 1; justify-self: end; }
       .record-row > :nth-child(4) { grid-column: 2; grid-row: 2; justify-self: end; }
       .status-actions { gap: 6px; }
-      .edit-status-button { padding: 6px 7px; }
+      .edit-status-button, .delete-record-button { padding: 6px 7px; }
       .panel-footer { padding: 12px 16px; }
       .empty-state { padding: 38px 16px; }
       .modal { padding: 21px; }
@@ -355,12 +365,12 @@
       .record-row { gap: 8px; padding-right: 12px; padding-left: 12px; }
       .status-actions { gap: 5px; }
       .status-pill { padding: 6px 7px; font-size: 10px; }
-      .edit-status-button { padding: 6px; }
+      .edit-status-button, .delete-record-button { padding: 6px; }
       .modal { padding: 18px; }
     }
     @media (pointer: coarse) {
       .summary-card { min-height: 112px; }
-      .edit-status-button { min-height: 40px; min-width: 42px; }
+      .edit-status-button, .delete-record-button { min-height: 40px; min-width: 42px; }
       .logout-button, .close-button, .secondary-button, .submit-button { min-height: 42px; }
       .branch-choice { min-height: 64px; }
     }
@@ -564,6 +574,28 @@
         <div class="modal-actions">
           <button class="secondary-button" id="cancel-status-edit" type="button">Cancel</button>
           <button class="submit-button" id="save-status" type="submit">Save status</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="delete-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+      <div class="modal-heading">
+        <div>
+          <h2 id="delete-modal-title">Delete service slip?</h2>
+          <p class="modal-description" id="delete-modal-description">Confirm your account password to permanently delete this slip.</p>
+        </div>
+        <button class="close-button" id="close-delete-modal" type="button" aria-label="Close dialog">&times;</button>
+      </div>
+      <p class="dialog-warning">This permanently deletes the service slip and its attached file. This action cannot be undone.</p>
+      <form id="delete-form">
+        <label class="field-label" for="delete-password">Your account password</label>
+        <input class="form-input" id="delete-password" name="password" type="password" autocomplete="current-password" required>
+        <div class="dialog-error" id="delete-error" role="alert" aria-live="polite"></div>
+        <div class="modal-actions">
+          <button class="secondary-button" id="cancel-delete" type="button">Cancel</button>
+          <button class="submit-button danger-button" id="confirm-delete" type="submit">Delete slip</button>
         </div>
       </form>
     </section>
@@ -1027,6 +1059,7 @@
           <div class="status-actions">
             <span class="status-pill status-${record.status}">${labels[record.status]}</span>
             <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.dbId)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
+            <button class="delete-record-button" type="button" data-delete-id="${escapeHtml(record.dbId)}" aria-label="Delete ${escapeHtml(record.id)}">Delete</button>
           </div>
         </article>`).join("");
       document.getElementById("panel-footer").textContent = `Showing ${filtered.length} of ${records.length} service slips`;
@@ -1059,16 +1092,29 @@
 
     const statusModal = document.getElementById("status-modal");
     const statusForm = document.getElementById("status-form");
+    const deleteModal = document.getElementById("delete-modal");
+    const deleteForm = document.getElementById("delete-form");
+    let deletingRecordId = null;
     function closeStatusModal() {
       statusModal.hidden = true;
       statusForm.reset();
       editingRecordId = null;
     }
     document.getElementById("record-list").addEventListener("click", event => {
-      const button = event.target.closest("[data-edit-id]");
+      const button = event.target.closest("[data-edit-id], [data-delete-id]");
       if (!button) return;
-      const record = records.find(entry => entry.dbId === button.dataset.editId);
+      const recordId = button.dataset.editId || button.dataset.deleteId;
+      const record = records.find(entry => entry.dbId === recordId);
       if (!record) return;
+      if (button.hasAttribute("data-delete-id")) {
+        deletingRecordId = record.dbId;
+        document.getElementById("delete-modal-description").textContent =
+          `Enter your account password to permanently delete ${record.id} for ${record.customer}.`;
+        document.getElementById("delete-error").textContent = "";
+        deleteModal.hidden = false;
+        document.getElementById("delete-password").focus();
+        return;
+      }
       editingRecordId = record.dbId;
       document.getElementById("status-modal-description").textContent = `Choose a new status for ${record.id}.`;
       document.getElementById("edit-status-select").value = record.status;
@@ -1078,9 +1124,19 @@
     document.getElementById("close-status-modal").addEventListener("click", closeStatusModal);
     document.getElementById("cancel-status-edit").addEventListener("click", closeStatusModal);
     statusModal.addEventListener("click", event => { if (event.target === statusModal) closeStatusModal(); });
+    function closeDeleteModal() {
+      deleteModal.hidden = true;
+      deleteForm.reset();
+      document.getElementById("delete-error").textContent = "";
+      deletingRecordId = null;
+    }
+    document.getElementById("close-delete-modal").addEventListener("click", closeDeleteModal);
+    document.getElementById("cancel-delete").addEventListener("click", closeDeleteModal);
+    deleteModal.addEventListener("click", event => { if (event.target === deleteModal) closeDeleteModal(); });
     document.addEventListener("keydown", event => {
       if (event.key !== "Escape") return;
-      if (!statusModal.hidden) closeStatusModal();
+      if (!deleteModal.hidden) closeDeleteModal();
+      else if (!statusModal.hidden) closeStatusModal();
       else if (!modal.hidden) closeModal();
     });
     statusForm.addEventListener("submit", async event => {
@@ -1107,6 +1163,46 @@
       } catch (error) {
         showSyncError("Could not update status", error);
       } finally {
+        submit.disabled = false;
+      }
+    });
+    deleteForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const record = records.find(entry => entry.dbId === deletingRecordId);
+      if (!record || !deleteForm.reportValidity()) return;
+      const submit = document.getElementById("confirm-delete");
+      const passwordInput = document.getElementById("delete-password");
+      let password = passwordInput.value;
+      const errorMessage = document.getElementById("delete-error");
+      submit.disabled = true;
+      errorMessage.textContent = "";
+      try {
+        const { data: attachmentPath, error } = await supabaseClient.rpc("delete_warranty_record", {
+          p_record_id: record.dbId,
+          p_password: password
+        });
+        if (error) throw error;
+        records = records.filter(entry => entry.dbId !== record.dbId);
+        renderCounts();
+        renderRecords();
+        closeDeleteModal();
+        if (attachmentPath) {
+          const { error: storageError } = await supabaseClient.storage
+            .from("warranty-slips")
+            .remove([attachmentPath]);
+          if (storageError) {
+            showSyncError("Service slip deleted, but its attached file could not be removed", storageError);
+            return;
+          }
+        }
+        showSyncSuccess("Service slip deleted.");
+      } catch (error) {
+        errorMessage.textContent = error.message || "Could not delete service slip.";
+        passwordInput.value = "";
+        passwordInput.focus();
+      } finally {
+        password = "";
+        passwordInput.value = "";
         submit.disabled = false;
       }
     });

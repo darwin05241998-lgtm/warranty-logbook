@@ -6,7 +6,7 @@ A responsive warranty logbook. The site uses Supabase for email/password sign-in
 
 1. Open the Supabase project SQL Editor.
 2. Run [`supabase-setup.sql`](./supabase-setup.sql).
-   - The script is safe to rerun after the existing schema has been created. It adds the atomic slip-number RPC and enables Realtime updates for service records.
+   - The script is safe to rerun after the existing schema has been created. It adds the atomic slip-number and password-confirmed record-deletion RPCs, and enables Realtime updates for service records.
 3. In Supabase Authentication URL settings, set the Site URL to the GitHub Pages address and add that same address to the allowed redirect URLs.
 4. For reliable signup confirmation delivery, configure an SMTP provider in Supabase Authentication settings. The built-in email service is rate-limited and intended for testing. Users can request another confirmation email from the signup screen.
 
