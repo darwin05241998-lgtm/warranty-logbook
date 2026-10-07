@@ -237,6 +237,7 @@
     .branch-detail { margin-top: 3px; color: var(--muted); font-size: 11px; }
     .startup-button { width: 100%; min-height: 43px; margin-top: 15px; }
     .auth-error { min-height: 17px; margin-top: 11px; color: #bf3f4b; font-size: 11px; line-height: 1.4; }
+    .auth-error.success { color: #72d6a7; }
     .startup-back, .add-branch-button { border: 0; background: transparent; color: #6e7888; font-size: 11px; }
     .startup-back { display: block; margin: 12px auto 0; }
     .add-branch-button { display: block; margin: 15px auto 0; color: var(--accent); font-weight: 650; }
@@ -394,6 +395,7 @@
           <input class="form-input" id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="6" required>
           <div class="auth-error" id="auth-error" role="alert" aria-live="polite"></div>
           <button class="scan-button startup-button" id="auth-submit" type="submit">Log in</button>
+          <button class="startup-back" id="auth-resend" type="button" hidden>Resend confirmation email</button>
         </form>
         <p class="auth-footnote">Your logbook is private to your signed-in account and syncs online.</p>
       </div>
@@ -470,8 +472,8 @@
             <span><span class="summary-number" id="count-claimed">8</span><span class="summary-note">Successfully completed</span></span>
           </button>
           <button class="summary-card" data-filter="pending" aria-pressed="false" type="button">
-            <span class="summary-top"><span class="summary-label">Pending</span><span class="summary-dot"></span></span>
-            <span><span class="summary-number" id="count-pending">3</span><span class="summary-note">Waiting for assessment</span></span>
+            <span class="summary-top">            <span class="summary-label">Purchased within 7 days</span><span class="summary-dot"></span></span>
+            <span><span class="summary-number" id="count-pending">3</span><span class="summary-note">Priority warranty claim</span></span>
           </button>
           <button class="summary-card" data-filter="pickup" aria-pressed="false" type="button">
             <span class="summary-top"><span class="summary-label">For pickup</span><span class="summary-dot"></span></span>
@@ -514,19 +516,19 @@
           <span class="file-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg>
           </span>
-          <span><span class="file-title">Choose a slip to attach</span><span class="file-hint">Image or PDF, up to 10 MB</span><span class="file-name" id="file-name"></span></span>
+          <span><span class="file-title">Choose a slip to attach</span><span class="file-hint">JPEG, PNG, GIF, WebP, or PDF, up to 10 MB</span><span class="file-name" id="file-name"></span></span>
         </label>
-        <input class="sr-only" id="slip-file" type="file" accept="image/*,.pdf,application/pdf">
+        <input class="sr-only" id="slip-file" type="file" accept="image/jpeg,image/png,image/gif,image/webp,.pdf,application/pdf">
         <label class="field-label" for="customer-input">Customer name</label>
-        <input class="form-input" id="customer-input" name="customer" placeholder="e.g. Juan Dela Cruz" required>
+        <input class="form-input" id="customer-input" name="customer" placeholder="e.g. Juan Dela Cruz" required maxlength="120">
         <label class="field-label" for="item-input">Item</label>
-        <input class="form-input" id="item-input" name="item" placeholder="e.g. MSI Laptop" required>
+        <input class="form-input" id="item-input" name="item" placeholder="e.g. MSI Laptop" required maxlength="120">
         <div class="form-grid">
           <div>
             <label class="field-label" for="status-input">Status</label>
             <select class="form-select" id="status-input" name="status">
               <option value="ongoing">Ongoing</option><option value="claimed">Claimed</option>
-              <option value="pending">Pending</option><option value="pickup">For pickup</option>
+              <option value="pending">Purchased within 7 days (priority claim)</option><option value="pickup">For pickup</option>
             </select>
           </div>
           <div>
@@ -556,7 +558,7 @@
         <select class="form-select" id="edit-status-select" name="status" required>
           <option value="ongoing">Ongoing</option>
           <option value="claimed">Claimed</option>
-          <option value="pending">Pending</option>
+          <option value="pending">Purchased within 7 days (priority claim)</option>
           <option value="pickup">For pickup</option>
         </select>
         <div class="modal-actions">
@@ -575,7 +577,7 @@
       : null;
     let records = [];
 
-    const labels = { ongoing: "Ongoing", claimed: "Claimed", pending: "Pending", pickup: "For pickup" };
+    const labels = { ongoing: "Ongoing", claimed: "Claimed", pending: "Purchased within 7 days", pickup: "For pickup" };
     let activeFilter = "all";
     let editingRecordId = null;
 
@@ -587,12 +589,16 @@
     const appShell = document.getElementById("app-shell");
     const authForm = document.getElementById("auth-form");
     const authError = document.getElementById("auth-error");
+    const authResend = document.getElementById("auth-resend");
     let branches = [];
     let selectedBranch = null;
     let authMode = "login";
+    let pendingSignupLogin = false;
     let currentUser = null;
     let recordsChannel = null;
     let recordsRefreshTimer = null;
+    let recordsReconnectTimer = null;
+    let recordsReconnectAttempt = 0;
 
     function renderBranches() {
       const list = document.getElementById("branch-list");
@@ -613,6 +619,7 @@
 
     function setAuthMode(mode) {
       authMode = mode;
+      pendingSignupLogin = false;
       const registering = mode === "register";
       document.getElementById("login-tab").setAttribute("aria-selected", String(!registering));
       document.getElementById("register-tab").setAttribute("aria-selected", String(registering));
@@ -623,6 +630,8 @@
       document.getElementById("auth-submit").textContent = registering ? "Create account" : "Log in";
       document.getElementById("auth-password").autocomplete = registering ? "new-password" : "current-password";
       authError.textContent = "";
+      authError.classList.remove("success");
+      authResend.hidden = true;
     }
 
     function showAuth(message = "") {
@@ -693,6 +702,11 @@
     document.getElementById("register-tab").addEventListener("click", () => setAuthMode("register"));
     authForm.addEventListener("submit", async event => {
       event.preventDefault();
+      if (pendingSignupLogin) {
+        setAuthMode("login");
+        document.getElementById("auth-password").focus();
+        return;
+      }
       if (!supabaseClient) {
         authError.textContent = "Supabase is unavailable. Check your internet connection and reload.";
         return;
@@ -709,15 +723,52 @@
           : await supabaseClient.auth.signInWithPassword({ email, password });
         if (result.error) throw result.error;
         if (authMode === "register" && !result.data.session) {
-          authError.textContent = "Account created. Check your email to confirm it, then return here to log in.";
+          pendingSignupLogin = true;
+          document.getElementById("auth-password").value = "";
+          submit.textContent = "Go to log in";
+          authResend.hidden = false;
+          authError.classList.add("success");
+          authError.textContent = "Check your inbox, spam, and promotions folders for a confirmation link. If it doesn't arrive, try resending or contact the logbook administrator.";
           return;
         }
         currentUser = result.data.user;
         await showBranchChooser();
       } catch (error) {
-        authError.textContent = error.message;
+        const isRateLimited = error.status === 429 || /security purposes|too many requests/i.test(error.message || "");
+        authError.textContent = isRateLimited
+          ? "Signup is temporarily rate-limited. Wait before trying again, check your email, or log in if you already signed up."
+          : error.message;
       } finally {
         submit.disabled = false;
+      }
+    });
+    authResend.addEventListener("click", async () => {
+      if (!supabaseClient) {
+        authError.textContent = "Supabase is unavailable. Check your internet connection and reload.";
+        authError.classList.remove("success");
+        return;
+      }
+      const email = document.getElementById("auth-email").value.trim();
+      if (!email) {
+        authError.textContent = "Enter your email address first.";
+        authError.classList.remove("success");
+        return;
+      }
+      authResend.disabled = true;
+      authError.textContent = "";
+      try {
+        const { error } = await supabaseClient.auth.resend({ type: "signup", email });
+        if (error) throw error;
+        authError.classList.add("success");
+        authError.textContent = "If this account needs confirmation, a new email has been requested. Check your inbox, spam, and promotions folders.";
+      } catch (error) {
+        const isRateLimited = error.status === 429 || /security purposes|too many requests/i.test(error.message || "");
+        authError.classList.remove("success");
+        authError.textContent = isRateLimited
+          ? "Email requests are temporarily rate-limited. Wait before trying again."
+          : error.message;
+      } finally {
+        authResend.disabled = false;
       }
     });
     document.getElementById("branch-list").addEventListener("click", event => {
@@ -848,6 +899,11 @@
         window.clearTimeout(recordsRefreshTimer);
         recordsRefreshTimer = null;
       }
+      if (recordsReconnectTimer !== null) {
+        window.clearTimeout(recordsReconnectTimer);
+        recordsReconnectTimer = null;
+      }
+      recordsReconnectAttempt = 0;
       if (recordsChannel) {
         const channel = recordsChannel;
         recordsChannel = null;
@@ -856,8 +912,15 @@
     }
 
     function startRecordsSync(branchId) {
-      if (recordsChannel) supabaseClient.removeChannel(recordsChannel);
-      recordsChannel = supabaseClient
+      if (recordsChannel) {
+        const previousChannel = recordsChannel;
+        recordsChannel = null;
+        supabaseClient.removeChannel(previousChannel).catch(error => {
+          showSyncError("Could not close the previous live sync", error);
+        });
+      }
+      let connectedBefore = false;
+      const channel = supabaseClient
         .channel(`warranty-records-${branchId}`)
         .on("postgres_changes", {
           event: "*",
@@ -870,13 +933,55 @@
             recordsRefreshTimer = null;
             loadRecords().catch(error => showSyncError("Could not refresh cloud records", error));
           }, 150);
-        })
-        .subscribe((status, error) => {
-          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            showSyncError("Live sync disconnected; reload to refresh records", error || new Error(status));
+        });
+      recordsChannel = channel;
+      channel.subscribe((status, error) => {
+          if (recordsChannel !== channel || selectedBranch?.id !== branchId) return;
+          if (status === "SUBSCRIBED") {
+            recordsReconnectAttempt = 0;
+            if (recordsReconnectTimer !== null) {
+              window.clearTimeout(recordsReconnectTimer);
+              recordsReconnectTimer = null;
+            }
+            const message = document.getElementById("sync-message");
+            if (message.textContent.startsWith("Live updates disconnected")) {
+              message.textContent = "";
+              message.classList.remove("success");
+            }
+            if (connectedBefore) {
+              loadRecords().catch(refreshError => showSyncError("Could not refresh cloud records", refreshError));
+            }
+            connectedBefore = true;
+            return;
+          }
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            showSyncError("Live updates disconnected. Retrying automatically", error || new Error(status));
+            if (recordsReconnectTimer !== null) return;
+            const delays = [1000, 2000, 5000, 10000, 30000];
+            const delay = delays[Math.min(recordsReconnectAttempt, delays.length - 1)];
+            recordsReconnectAttempt += 1;
+            recordsReconnectTimer = window.setTimeout(async () => {
+              recordsReconnectTimer = null;
+              if (recordsChannel !== channel || selectedBranch?.id !== branchId) return;
+              recordsChannel = null;
+              try {
+                await supabaseClient.removeChannel(channel);
+              } catch (removeError) {
+                showSyncError("Could not reset live sync", removeError);
+              }
+              startRecordsSync(branchId);
+            }, delay);
           }
         });
     }
+
+    function refreshRecordsWhenActive() {
+      if (!selectedBranch || document.hidden || !navigator.onLine) return;
+      loadRecords().catch(error => showSyncError("Could not refresh cloud records", error));
+    }
+
+    document.addEventListener("visibilitychange", refreshRecordsWhenActive);
+    window.addEventListener("online", refreshRecordsWhenActive);
 
     supabaseClient?.auth.getSession().then(({ data, error }) => {
       if (error) {
@@ -921,7 +1026,7 @@
           <span class="product-name">${escapeHtml(record.item)}</span>
           <div class="status-actions">
             <span class="status-pill status-${record.status}">${labels[record.status]}</span>
-            <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.id)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
+            <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.dbId)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
           </div>
         </article>`).join("");
       document.getElementById("panel-footer").textContent = `Showing ${filtered.length} of ${records.length} service slips`;
@@ -1010,6 +1115,27 @@
     const fileInput = document.getElementById("slip-file");
     const fileName = document.getElementById("file-name");
     const form = document.getElementById("record-form");
+    const allowedUploadTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"]);
+    const uploadTypeByExtension = {
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      gif: "image/gif",
+      webp: "image/webp",
+      pdf: "application/pdf"
+    };
+    function getUploadContentType(file) {
+      const declaredType = file.type.toLocaleLowerCase();
+      if (allowedUploadTypes.has(declaredType)) return declaredType;
+      const extension = file.name.toLocaleLowerCase().split(".").pop();
+      return declaredType ? null : uploadTypeByExtension[extension] || null;
+    }
+    function getLocalDateInputValue(date = new Date()) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
     function closeModal() {
       modal.hidden = true;
       form.reset();
@@ -1017,7 +1143,7 @@
     }
     document.getElementById("open-upload").addEventListener("click", () => {
       modal.hidden = false;
-      document.getElementById("date-input").value = new Date().toISOString().slice(0, 10);
+      document.getElementById("date-input").value = getLocalDateInputValue();
       document.getElementById("customer-input").focus();
     });
     document.getElementById("close-modal").addEventListener("click", closeModal);
@@ -1032,6 +1158,14 @@
       if (file.size > 10 * 1024 * 1024) {
         fileInput.value = "";
         fileName.textContent = "File is larger than 10 MB. Choose a smaller file.";
+        fileName.style.color = "#c6414e";
+        return;
+      }
+      if (!file.size || !getUploadContentType(file)) {
+        fileInput.value = "";
+        fileName.textContent = !file.size
+          ? "This file is empty. Choose a different file."
+          : "Unsupported file type. Use JPEG, PNG, GIF, WebP, or PDF.";
         fileName.style.color = "#c6414e";
         return;
       }
@@ -1062,7 +1196,7 @@
           const path = `${selectedBranch.id}/${savedRecord.dbId}/${safeFileName}`;
           const { error: uploadError } = await supabaseClient.storage
             .from("warranty-slips")
-            .upload(path, slipFile, { upsert: false, contentType: slipFile.type || "application/octet-stream" });
+            .upload(path, slipFile, { upsert: false, contentType: getUploadContentType(slipFile) });
           if (uploadError) {
             renderCounts();
             renderRecords();
