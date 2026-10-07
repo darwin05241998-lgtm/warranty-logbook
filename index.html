@@ -1177,9 +1177,16 @@
       submit.disabled = true;
       errorMessage.textContent = "";
       try {
+        const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+          email: currentUser.email,
+          password
+        });
+        if (authError) throw authError;
+        if (authData.user.id !== currentUser.id) {
+          throw new Error("Could not confirm the password for the signed-in account.");
+        }
         const { data: attachmentPath, error } = await supabaseClient.rpc("delete_warranty_record", {
-          p_record_id: record.dbId,
-          p_password: password
+          p_record_id: record.dbId
         });
         if (error) throw error;
         records = records.filter(entry => entry.dbId !== record.dbId);

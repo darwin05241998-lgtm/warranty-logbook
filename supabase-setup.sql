@@ -138,35 +138,27 @@ grant select, update on public.warranty_records to authenticated;
 revoke insert on public.warranty_records from authenticated;
 revoke delete on public.warranty_records from public, anon, authenticated;
 
-create or replace function public.delete_warranty_record(
-  p_record_id uuid,
-  p_password text
-)
+drop function if exists public.delete_warranty_record(uuid, text);
+
+create or replace function public.delete_warranty_record(p_record_id uuid)
 returns text
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
-  password_hash text;
+  authenticated_at bigint;
   record_attachment_path text;
 begin
   if auth.uid() is null then
     raise exception 'You must be signed in to delete a service slip.';
   end if;
 
-  if p_password is null or p_password = '' then
-    raise exception 'Enter your account password to confirm deletion.';
-  end if;
-
-  select users.encrypted_password
-  into password_hash
-  from auth.users users
-  where users.id = auth.uid();
-
-  if password_hash is null
-    or extensions.crypt(p_password, password_hash) is distinct from password_hash then
-    raise exception 'The account password is incorrect.' using errcode = '28000';
+  authenticated_at := coalesce((auth.jwt() ->> 'auth_time')::bigint, 0);
+  if authenticated_at < extract(epoch from now())::bigint - 300
+    or authenticated_at > extract(epoch from now())::bigint + 30 then
+    raise exception 'Re-enter your account password to confirm deletion.'
+      using errcode = '28000';
   end if;
 
   delete from public.warranty_records warranty_record
@@ -185,8 +177,8 @@ begin
 end;
 $$;
 
-revoke all on function public.delete_warranty_record(uuid, text) from public, anon;
-grant execute on function public.delete_warranty_record(uuid, text) to authenticated;
+revoke all on function public.delete_warranty_record(uuid) from public, anon;
+grant execute on function public.delete_warranty_record(uuid) to authenticated;
 
 create or replace function public.create_warranty_record(
   p_branch_id uuid,
