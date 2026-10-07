@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#10131c">
+  <title>Warranty Logbook</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #e8eaf2;
+      --muted: #929bb0;
+      --line: #2b3141;
+      --surface: #191d29;
+      --canvas: #10131c;
+      --accent: #8b83ff;
+      --accent-dark: #776ef0;
+      --shadow: 0 14px 36px rgba(0, 0, 0, .28);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 3px solid rgba(139, 131, 255, .5); outline-offset: 2px; }
+    .app-shell { min-height: 100vh; }
+    .topbar {
+      height: 76px;
+      padding: 0 max(32px, calc((100vw - 1160px) / 2));
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      width: 38px; height: 38px;
+      display: grid; place-items: center;
+      color: #fff; background: var(--accent);
+      border-radius: 12px;
+    }
+    .brand-mark svg { width: 21px; height: 21px; }
+    .brand-name { font-size: 15px; font-weight: 750; letter-spacing: -.35px; }
+    .brand-caption { margin-top: 2px; color: var(--muted); font-size: 11px; }
+    .topbar-right { display: flex; align-items: center; gap: 18px; }
+    .today { color: var(--muted); font-size: 13px; }
+    .avatar {
+      width: 36px; height: 36px;
+      display: grid; place-items: center;
+      border-radius: 50%;
+      background: #eeedff; color: var(--accent);
+      font-size: 12px; font-weight: 750;
+    }
+
+    main { width: min(100% - 48px, 1060px); margin: 0 auto; padding: 42px 0 64px; }
+    .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+    .eyebrow {
+      color: var(--accent); font-size: 11px; font-weight: 750;
+      letter-spacing: 1.35px; text-transform: uppercase;
+    }
+    h1 { margin: 8px 0 6px; font-size: clamp(27px, 4vw, 34px); letter-spacing: -1.25px; line-height: 1.15; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 14px; }
+    .scan-button {
+      min-height: 46px; display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+      padding: 0 17px; border: 0; border-radius: 10px;
+      background: var(--accent); color: #fff;
+      box-shadow: 0 5px 12px rgba(97, 88, 219, .2);
+      font-size: 13px; font-weight: 700;
+      transition: background .15s, transform .15s;
+    }
+    .scan-button:hover { background: var(--accent-dark); transform: translateY(-1px); }
+    .scan-button svg { width: 17px; height: 17px; }
+
+    .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-top: 32px; }
+    .summary-card {
+      min-height: 118px; padding: 17px 18px;
+      background: var(--surface); border: 1px solid var(--line); border-radius: 13px;
+      box-shadow: 0 3px 12px rgba(31, 44, 67, .025);
+      display: flex; flex-direction: column; justify-content: space-between;
+      text-align: left; transition: border-color .15s, box-shadow .15s, transform .15s;
+    }
+    .summary-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+    .summary-card[aria-pressed="true"] { border-color: color-mix(in srgb, var(--status) 58%, white); box-shadow: 0 0 0 2px color-mix(in srgb, var(--status) 12%, transparent); }
+    .summary-card[data-filter="all"] { --status: var(--accent); }
+    .summary-card[data-filter="ongoing"] { --status: #e3a323; }
+    .summary-card[data-filter="claimed"] { --status: #2eab78; }
+    .summary-card[data-filter="pending"] { --status: #e25c66; }
+    .summary-card[data-filter="pickup"] { --status: #4385db; }
+    .summary-top { display: flex; align-items: center; justify-content: space-between; }
+    .summary-label { color: #586476; font-size: 12px; font-weight: 650; }
+    .summary-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--status); }
+    .summary-number { display: block; font-size: 27px; line-height: 1; font-weight: 760; letter-spacing: -.8px; }
+    .summary-note { display: block; margin-top: 5px; color: #929bab; font-size: 10px; line-height: 1.3; }
+
+    .records-panel {
+      margin-top: 32px; overflow: hidden;
+      background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(31, 44, 67, .025);
+    }
+    .panel-heading {
+      padding: 21px 24px 17px;
+      display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    }
+    .panel-title { margin: 0; font-size: 16px; font-weight: 740; letter-spacing: -.25px; }
+    .result-count { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .search-wrap { position: relative; width: min(290px, 44%); }
+    .search-wrap svg {
+      width: 17px; height: 17px; position: absolute; left: 12px; top: 50%;
+      transform: translateY(-50%); color: #98a2b2; pointer-events: none;
+    }
+    .search-input {
+      width: 100%; height: 39px; padding: 0 12px 0 38px;
+      border: 1px solid #e6eaf0; border-radius: 9px; outline: none;
+      background: #fbfcfe; color: var(--ink); font-size: 12px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .search-input:focus { border-color: #aaa4f2; box-shadow: 0 0 0 3px rgba(97, 88, 219, .1); }
+    .table-head, .record-row {
+      display: grid; grid-template-columns: 1.05fr 1.55fr 1.35fr 1.45fr;
+      align-items: center; column-gap: 16px;
+    }
+    .table-head {
+      min-height: 39px; padding: 0 24px;
+      border-top: 1px solid #f0f2f5; border-bottom: 1px solid #f0f2f5;
+      background: #fafbfc; color: #929bab;
+      font-size: 10px; font-weight: 700; letter-spacing: .65px; text-transform: uppercase;
+    }
+    .record-row {
+      min-height: 71px; padding: 0 24px; border-bottom: 1px solid #f0f2f5;
+      transition: background .12s;
+    }
+    .record-row:last-child { border-bottom: 0; }
+    .record-row:hover { background: #fcfcff; }
+    .ticket { color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .15px; }
+    .ticket-date { display: block; margin-top: 4px; color: #929bab; font-size: 10px; font-weight: 450; letter-spacing: 0; }
+    .customer-name { font-size: 13px; font-weight: 660; }
+    .product-name { color: #536073; font-size: 12px; }
+    .date-label { color: #737f90; font-size: 12px; }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      width: fit-content; padding: 6px 9px;
+      border-radius: 20px; font-size: 11px; font-weight: 650; white-space: nowrap;
+    }
+    .status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .status-ongoing { color: #a86c00; background: #fff5db; }
+    .status-claimed { color: #188354; background: #e7f7ef; }
+    .status-pending { color: #c6414e; background: #fff0f0; }
+    .status-pickup { color: #2765b5; background: #eaf2ff; }
+    .status-actions { display: flex; align-items: center; gap: 9px; }
+    .edit-status-button {
+      padding: 6px 9px; border: 1px solid #343b4e; border-radius: 7px;
+      background: #202534; color: #c4c9d7; font-size: 10px; font-weight: 650;
+      transition: border-color .15s, background .15s, color .15s;
+    }
+    .edit-status-button:hover { border-color: #625ba2; background: #29283f; color: #e3e0ff; }
+    .attachment-link { display: block; width: fit-content; margin-top: 4px; color: #aaa3ff; font-size: 10px; text-decoration: none; }
+    .attachment-link:hover { text-decoration: underline; }
+    .empty-state { padding: 50px 20px; color: var(--muted); text-align: center; font-size: 13px; }
+    .empty-state strong { display: block; margin-bottom: 5px; color: var(--ink); font-size: 14px; }
+    .panel-footer { padding: 13px 24px; border-top: 1px solid #f0f2f5; color: #929bab; font-size: 11px; }
+
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 5; display: grid; place-items: center;
+      padding: 20px; background: rgba(21, 28, 43, .42); backdrop-filter: blur(3px);
+    }
+    .modal {
+      width: min(100%, 460px); max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px);
+      overflow-y: auto; padding: 25px;
+      background: white; border-radius: 16px; box-shadow: 0 22px 70px rgba(20, 27, 43, .2);
+    }
+    .modal-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+    .modal h2 { margin: 0; font-size: 19px; letter-spacing: -.4px; }
+    .modal-description { margin: 6px 0 20px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .close-button {
+      width: 30px; height: 30px; display: grid; place-items: center;
+      border: 0; border-radius: 8px; background: #f3f4f7; color: #657184; font-size: 19px;
+    }
+    .file-label {
+      min-height: 78px; display: flex; align-items: center; gap: 12px;
+      padding: 14px; border: 1px dashed #c8c5f3; border-radius: 10px;
+      background: #faf9ff; cursor: pointer;
+    }
+    .file-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; background: #eeedff; color: var(--accent); }
+    .file-icon svg { width: 19px; height: 19px; }
+    .file-title { color: #333d4d; font-size: 12px; font-weight: 700; }
+    .file-hint { margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .file-name { margin-top: 5px; color: var(--accent); font-size: 11px; overflow-wrap: anywhere; }
+    .field-label { display: block; margin: 17px 0 7px; color: #475365; font-size: 11px; font-weight: 700; }
+    .form-input, .form-select {
+      width: 100%; height: 41px; padding: 0 11px; border: 1px solid #e1e6ed;
+      border-radius: 8px; outline: none; background: white; color: var(--ink); font-size: 12px;
+    }
+    .form-input:focus, .form-select:focus { border-color: #aaa4f2; box-shadow: 0 0 0 3px rgba(97, 88, 219, .1); }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 24px; }
+    .secondary-button, .submit-button { min-height: 39px; padding: 0 14px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+    .secondary-button { border: 1px solid #e2e6ed; background: white; color: #586476; }
+    .submit-button { border: 0; background: var(--accent); color: white; }
+    .submit-button:disabled { opacity: .45; cursor: not-allowed; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+    .startup {
+      min-height: 100vh; display: grid; place-items: center; padding: 28px 18px;
+      background: radial-gradient(ellipse at 50% 0%, #ecebff 0%, var(--canvas) 54%);
+    }
+    .startup-card {
+      width: min(100%, 430px); padding: 32px;
+      background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+      box-shadow: 0 20px 60px rgba(31, 44, 67, .09);
+    }
+    .startup-brand { display: flex; justify-content: center; margin-bottom: 21px; }
+    .startup-card h1 { margin: 0; text-align: center; font-size: 25px; letter-spacing: -.8px; }
+    .startup-copy { margin: 9px 0 23px; color: var(--muted); text-align: center; font-size: 13px; line-height: 1.55; }
+    .startup-step { color: var(--accent); font-size: 10px; font-weight: 750; letter-spacing: 1.1px; text-align: center; text-transform: uppercase; }
+    .branch-list { display: grid; gap: 9px; }
+    .branch-choice {
+      width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 12px;
+      border: 1px solid var(--line); border-radius: 10px; background: #fff; text-align: left;
+      transition: border-color .15s, background .15s, transform .15s;
+    }
+    .branch-choice:hover { border-color: #c7c2fa; background: #faf9ff; transform: translateY(-1px); }
+    .branch-pin { width: 36px; height: 36px; flex: 0 0 36px; display: grid; place-items: center; border-radius: 9px; background: #eeedff; color: var(--accent); }
+    .branch-pin svg { width: 19px; height: 19px; }
+    .branch-name { display: block; font-size: 13px; font-weight: 720; }
+    .branch-detail { margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .startup-button { width: 100%; min-height: 43px; margin-top: 15px; }
+    .auth-error { min-height: 17px; margin-top: 11px; color: #bf3f4b; font-size: 11px; line-height: 1.4; }
+    .startup-back, .add-branch-button { border: 0; background: transparent; color: #6e7888; font-size: 11px; }
+    .startup-back { display: block; margin: 12px auto 0; }
+    .add-branch-button { display: block; margin: 15px auto 0; color: var(--accent); font-weight: 650; }
+    .branch-form { padding-top: 3px; }
+    .branch-empty { padding: 15px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); font-size: 12px; text-align: center; }
+    .sync-message { margin: 16px 24px 0; padding: 11px 13px; border: 1px solid #71414a; border-radius: 8px; background: #302127; color: #f29aa3; font-size: 12px; line-height: 1.5; }
+    .sync-message:empty { display: none; }
+    .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin: 16px 0; border-radius: 9px; background: #121622; }
+    .auth-tab { min-height: 38px; border: 0; border-radius: 7px; background: transparent; color: #98a1b5; font-size: 12px; font-weight: 650; }
+    .auth-tab[aria-selected="true"] { background: #292e3d; color: #f0f1f6; }
+    .auth-footnote { margin: 17px 0 0; color: #929bb0; font-size: 10px; line-height: 1.5; text-align: center; }
+    .header-account { display: flex; align-items: center; gap: 10px; }
+    .account-details { text-align: right; }
+    .account-name { color: #394456; font-size: 12px; font-weight: 680; }
+    .branch-caption { margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .logout-button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: white; color: #657184; font-size: 11px; font-weight: 650; }
+    .logout-button:hover { border-color: #cdd3de; color: var(--ink); }
+
+    .topbar, .summary-card, .records-panel { background: var(--surface); }
+    .avatar, .file-icon, .branch-pin { background: #28243f; color: #b1aaff; }
+    .summary-card { box-shadow: 0 3px 12px rgba(0, 0, 0, .12); }
+    .summary-card[aria-pressed="true"] {
+      border-color: color-mix(in srgb, var(--status) 62%, #272b38);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--status) 19%, transparent);
+    }
+    .summary-label { color: #c1c6d4; }
+    .summary-note, .ticket-date, .panel-footer { color: #8791a6; }
+    .records-panel { box-shadow: 0 4px 16px rgba(0, 0, 0, .14); }
+    .search-wrap svg { color: #8993a8; }
+    .search-input, .form-input, .form-select {
+      border-color: #343b4e; background: #121622; color: var(--ink);
+      color-scheme: dark;
+    }
+    .search-input::placeholder, .form-input::placeholder { color: #778197; }
+    .search-input:focus, .form-input:focus, .form-select:focus {
+      border-color: #8279f4; box-shadow: 0 0 0 3px rgba(139, 131, 255, .16);
+    }
+    .table-head {
+      border-color: var(--line); background: #151925; color: #8993a8;
+    }
+    .record-row { border-color: #272d3b; }
+    .record-row:hover { background: #202534; }
+    .product-name { color: #b1b9c9; }
+    .status-ongoing { color: #f0c36d; background: #382d19; }
+    .status-claimed { color: #72d6a7; background: #19372d; }
+    .status-pending { color: #f18c96; background: #3a2329; }
+    .status-pickup { color: #88b9ff; background: #1d2d45; }
+    .panel-footer { border-color: var(--line); }
+    .modal-backdrop { background: rgba(3, 5, 10, .72); }
+    .modal { background: #191d29; box-shadow: 0 22px 70px rgba(0, 0, 0, .5); }
+    .close-button { background: #272d3b; color: #aab2c3; }
+    .file-label { border-color: #514b7f; background: #201e32; }
+    .file-title { color: #e4e7f0; }
+    .field-label { color: #c5cad6; }
+    .secondary-button { border-color: #343b4e; background: #202534; color: #c3c9d6; }
+    .startup {
+      background: radial-gradient(ellipse at 50% 0%, #201d3a 0%, var(--canvas) 58%);
+    }
+    .startup-card { box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
+    .branch-choice { border-color: #303648; background: #1c202d; color: var(--ink); }
+    .branch-choice:hover { border-color: #625ba2; background: #232338; }
+    .branch-empty { border-color: #343b4e; }
+    .startup-back, .add-branch-button { color: #a6aec0; }
+    .add-branch-button { color: #aaa3ff; }
+    .account-name { color: #e0e4ed; }
+    .logout-button { border-color: #343b4e; background: #1d2230; color: #bac1d0; }
+    .logout-button:hover { border-color: #505a70; color: #f0f2f7; }
+
+    @media (max-width: 900px) {
+      main { width: min(100% - 40px, 800px); }
+      .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .table-head, .record-row { grid-template-columns: 1fr 1.35fr 1.2fr 1.5fr; column-gap: 12px; }
+    }
+
+    @media (max-width: 700px) {
+      .topbar { min-height: 66px; height: auto; padding: 11px 16px; }
+      .topbar-right { gap: 10px; }
+      .header-account { gap: 7px; }
+      .account-details { display: none; }
+      .logout-button { padding: 7px 9px; }
+      main { width: min(100% - 32px, 520px); padding: 26px 0 44px; }
+      .today { display: none; }
+      .page-heading { align-items: flex-start; flex-direction: column; }
+      .scan-button { width: 100%; }
+      .summary-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 24px; }
+      .summary-card { min-height: 106px; padding: 14px; }
+      .panel-heading { align-items: flex-start; flex-direction: column; padding: 18px; }
+      .search-wrap { width: 100%; }
+      .table-head { display: none; }
+      .table-head, .record-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+      }
+      .record-row {
+        min-height: 76px; gap: 9px 12px; padding: 14px 16px;
+      }
+      .record-row > :nth-child(2) { grid-column: 1; grid-row: 2; }
+      .record-row > :nth-child(3) { grid-column: 2; grid-row: 1; justify-self: end; }
+      .record-row > :nth-child(4) { grid-column: 2; grid-row: 2; justify-self: end; }
+      .status-actions { gap: 6px; }
+      .edit-status-button { padding: 6px 7px; }
+      .panel-footer { padding: 12px 16px; }
+      .empty-state { padding: 38px 16px; }
+      .modal { padding: 21px; }
+    }
+    @media (max-width: 380px) {
+      .brand-caption { display: none; }
+      .form-grid { grid-template-columns: 1fr; gap: 0; }
+      .startup-card { padding: 25px 20px; }
+      main { width: calc(100% - 24px); }
+      .summary-grid { gap: 8px; }
+      .summary-card { padding: 12px; }
+      .summary-label { font-size: 11px; }
+      .record-row { gap: 8px; padding-right: 12px; padding-left: 12px; }
+      .status-actions { gap: 5px; }
+      .status-pill { padding: 6px 7px; font-size: 10px; }
+      .edit-status-button { padding: 6px; }
+      .modal { padding: 18px; }
+    }
+    @media (pointer: coarse) {
+      .summary-card { min-height: 112px; }
+      .edit-status-button { min-height: 40px; min-width: 42px; }
+      .logout-button, .close-button, .secondary-button, .submit-button { min-height: 42px; }
+      .branch-choice { min-height: 64px; }
+    }
+    @media (max-height: 560px) {
+      .startup { align-items: start; }
+      .startup-card { margin: auto 0; }
+    }
+  </style>
+</head>
+<body>
+  <section class="startup" id="startup-screen" aria-label="Welcome">
+    <div class="startup-card">
+      <div class="startup-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 3.75h7l4 4v12.5H7a2 2 0 0 1-2-2v-12a2.5 2.5 0 0 1 2-2.5Z"/><path d="M14 4v4h4M8.5 12h7M8.5 15.5h7"/>
+          </svg>
+        </div>
+      </div>
+      <div id="auth-step">
+        <div class="startup-step">Secure cloud access</div>
+        <h1 id="auth-title">Sign in</h1>
+        <p class="startup-copy" id="auth-copy">Use the same account on your phone and computer.</p>
+        <div class="auth-tabs" role="tablist" aria-label="Account access">
+          <button class="auth-tab" id="login-tab" type="button" role="tab" aria-selected="true">Log in</button>
+          <button class="auth-tab" id="register-tab" type="button" role="tab" aria-selected="false">Create account</button>
+        </div>
+        <form id="auth-form">
+          <label class="field-label" for="auth-email">Email</label>
+          <input class="form-input" id="auth-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+          <label class="field-label" for="auth-password">Password</label>
+          <input class="form-input" id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="6" required>
+          <div class="auth-error" id="auth-error" role="alert" aria-live="polite"></div>
+          <button class="scan-button startup-button" id="auth-submit" type="submit">Log in</button>
+        </form>
+        <p class="auth-footnote">Your logbook is private to your signed-in account and syncs online.</p>
+      </div>
+      <div id="branch-step" hidden>
+        <div class="startup-step">Signed in</div>
+        <h1>Select a branch</h1>
+        <p class="startup-copy">Choose a branch to open its shared logbook.</p>
+        <div class="branch-list" id="branch-list" aria-label="Available branches"></div>
+        <button class="add-branch-button" id="show-add-branch" type="button">+ Add a branch</button>
+        <button class="startup-back" id="back-to-login" type="button">← Sign out</button>
+      </div>
+      <div id="add-branch-step" hidden>
+        <div class="startup-step">New workspace</div>
+        <h1>Add a branch</h1>
+        <p class="startup-copy">Create a branch with a shared online logbook.</p>
+        <form id="add-branch-form" class="branch-form">
+          <label class="field-label" for="new-branch-name">Branch name</label>
+          <input class="form-input" id="new-branch-name" name="name" placeholder="e.g. Cebu" required maxlength="40">
+          <div class="auth-error" id="add-branch-error" role="alert" aria-live="polite"></div>
+          <button class="scan-button startup-button" id="add-branch-submit" type="submit">Add branch</button>
+        </form>
+        <button class="startup-back" id="cancel-add-branch" type="button">← Back to branches</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="app-shell" id="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 3.75h7l4 4v12.5H7a2 2 0 0 1-2-2v-12a2.5 2.5 0 0 1 2-2.5Z"/><path d="M14 4v4h4M8.5 12h7M8.5 15.5h7"/>
+          </svg>
+        </div>
+        <div><div class="brand-name">Warranty Logbook</div><div class="brand-caption">Service desk</div></div>
+      </div>
+      <div class="topbar-right">
+        <div class="today" id="today"></div>
+        <div class="header-account">
+          <div class="account-details"><div class="account-name" id="signed-in-name"></div><div class="branch-caption" id="signed-in-branch"></div></div>
+          <div class="avatar" id="account-avatar" aria-label="User profile"></div>
+        </div>
+        <button class="logout-button" id="logout-button" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <main>
+      <section aria-labelledby="page-title">
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow">Service dashboard</div>
+            <h1 id="page-title">Warranty logbook</h1>
+            <p class="subtitle">Keep every repair and service claim in one place.</p>
+          </div>
+          <button class="scan-button" id="open-upload" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3"/><path d="m14.5 14.5 3 3"/>
+            </svg>
+            Scan service slip
+          </button>
+        </div>
+
+        <div class="summary-grid" id="summary-grid" aria-label="Filter service records">
+          <button class="summary-card" data-filter="all" aria-pressed="true" type="button">
+            <span class="summary-top"><span class="summary-label">All service slips</span><span class="summary-dot"></span></span>
+            <span><span class="summary-number" id="count-all">25</span><span class="summary-note">Total records</span></span>
+          </button>
+          <button class="summary-card" data-filter="ongoing" aria-pressed="false" type="button">
+            <span class="summary-top"><span class="summary-label">Ongoing</span><span class="summary-dot"></span></span>
+            <span><span class="summary-number" id="count-ongoing">12</span><span class="summary-note">Currently being serviced</span></span>
+          </button>
+          <button class="summary-card" data-filter="claimed" aria-pressed="false" type="button">
+            <span class="summary-top"><span class="summary-label">Claimed</span><span class="summary-dot"></span></span>
+            <span><span class="summary-number" id="count-claimed">8</span><span class="summary-note">Successfully completed</span></span>
+          </button>
+          <button class="summary-card" data-filter="pending" aria-pressed="false" type="button">
+            <span class="summary-top"><span class="summary-label">Pending</span><span class="summary-dot"></span></span>
+            <span><span class="summary-number" id="count-pending">3</span><span class="summary-note">Waiting for assessment</span></span>
+          </button>
+          <button class="summary-card" data-filter="pickup" aria-pressed="false" type="button">
+            <span class="summary-top"><span class="summary-label">For pickup</span><span class="summary-dot"></span></span>
+            <span><span class="summary-number" id="count-pickup">2</span><span class="summary-note">Ready for collection</span></span>
+          </button>
+        </div>
+
+        <section class="records-panel" aria-labelledby="records-title">
+          <div class="sync-message" id="sync-message" role="status" aria-live="polite"></div>
+          <div class="panel-heading">
+            <div>
+              <h2 class="panel-title" id="records-title">Service slips</h2>
+              <div class="result-count" id="result-count" aria-live="polite">Showing 25 records</div>
+            </div>
+            <label class="search-wrap">
+              <span class="sr-only">Search service slips</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4 4"/></svg>
+              <input class="search-input" id="search" type="search" placeholder="Search name, item or slip no." autocomplete="off">
+            </label>
+          </div>
+          <div class="table-head" aria-hidden="true"><span>Slip no.</span><span>Customer</span><span>Item</span><span>Status</span></div>
+          <div id="record-list"></div>
+          <div class="panel-footer" id="panel-footer">Showing the latest service records</div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="upload-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-heading">
+        <div>
+          <h2 id="modal-title">Add a service slip</h2>
+          <p class="modal-description">Choose a slip image or PDF, then enter the details to add it to your logbook.</p>
+        </div>
+        <button class="close-button" id="close-modal" type="button" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="record-form">
+        <label class="file-label" for="slip-file">
+          <span class="file-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg>
+          </span>
+          <span><span class="file-title">Choose a slip to attach</span><span class="file-hint">Image or PDF, up to 10 MB</span><span class="file-name" id="file-name"></span></span>
+        </label>
+        <input class="sr-only" id="slip-file" type="file" accept="image/*,.pdf,application/pdf">
+        <label class="field-label" for="customer-input">Customer name</label>
+        <input class="form-input" id="customer-input" name="customer" placeholder="e.g. Juan Dela Cruz" required>
+        <label class="field-label" for="item-input">Item</label>
+        <input class="form-input" id="item-input" name="item" placeholder="e.g. MSI Laptop" required>
+        <div class="form-grid">
+          <div>
+            <label class="field-label" for="status-input">Status</label>
+            <select class="form-select" id="status-input" name="status">
+              <option value="ongoing">Ongoing</option><option value="claimed">Claimed</option>
+              <option value="pending">Pending</option><option value="pickup">For pickup</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label" for="date-input">Date received</label>
+            <input class="form-input" id="date-input" name="date" type="date" required>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-button" id="cancel-modal" type="button">Cancel</button>
+          <button class="submit-button" id="save-record" type="submit">Add to logbook</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="status-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="status-modal-title">
+      <div class="modal-heading">
+        <div>
+          <h2 id="status-modal-title">Change status</h2>
+          <p class="modal-description" id="status-modal-description">Update the status for this service slip.</p>
+        </div>
+        <button class="close-button" id="close-status-modal" type="button" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="status-form">
+        <label class="field-label" for="edit-status-select">Service status</label>
+        <select class="form-select" id="edit-status-select" name="status" required>
+          <option value="ongoing">Ongoing</option>
+          <option value="claimed">Claimed</option>
+          <option value="pending">Pending</option>
+          <option value="pickup">For pickup</option>
+        </select>
+        <div class="modal-actions">
+          <button class="secondary-button" id="cancel-status-edit" type="button">Cancel</button>
+          <button class="submit-button" type="submit">Save status</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    const SUPABASE_URL = "https://fxayllvfmpaklpzetyuv.supabase.co";
+    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_CCAo6QbCd2ELEj7V1ZHakQ_rMsveHZs";
+    const supabaseClient = window.supabase
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+      : null;
+    let records = [];
+
+    const labels = { ongoing: "Ongoing", claimed: "Claimed", pending: "Pending", pickup: "For pickup" };
+    let activeFilter = "all";
+    let editingRecordId = null;
+
+    document.getElementById("today").textContent = new Intl.DateTimeFormat("en", {
+      weekday: "short", month: "short", day: "numeric", year: "numeric"
+    }).format(new Date());
+
+    const startupScreen = document.getElementById("startup-screen");
+    const appShell = document.getElementById("app-shell");
+    const authForm = document.getElementById("auth-form");
+    const authError = document.getElementById("auth-error");
+    let branches = [];
+    let selectedBranch = null;
+    let authMode = "login";
+    let currentUser = null;
+
+    function renderBranches() {
+      const list = document.getElementById("branch-list");
+      if (!branches.length) {
+        list.innerHTML = '<div class="branch-empty">No branches yet. Add your first branch to get started.</div>';
+        return;
+      }
+      list.innerHTML = branches.map((branch, index) => `
+        <button class="branch-choice" type="button" data-branch-id="${escapeHtml(branch.id)}">
+          <span class="branch-pin" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 10h18l-1.5-6h-15L3 10Z"/><path d="M5 10v10h14V10M9 20v-6h6v6M3 10a2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0"/>
+            </svg>
+          </span>
+          <span><span class="branch-name">${escapeHtml(branch.name)}</span><span class="branch-detail">Open branch logbook</span></span>
+        </button>`).join("");
+    }
+
+    function setAuthMode(mode) {
+      authMode = mode;
+      const registering = mode === "register";
+      document.getElementById("login-tab").setAttribute("aria-selected", String(!registering));
+      document.getElementById("register-tab").setAttribute("aria-selected", String(registering));
+      document.getElementById("auth-title").textContent = registering ? "Create your account" : "Sign in";
+      document.getElementById("auth-copy").textContent = registering
+        ? "Create an account to keep your logbook in sync."
+        : "Use the same account on your phone and computer.";
+      document.getElementById("auth-submit").textContent = registering ? "Create account" : "Log in";
+      document.getElementById("auth-password").autocomplete = registering ? "new-password" : "current-password";
+      authError.textContent = "";
+    }
+
+    function showAuth(message = "") {
+      appShell.hidden = true;
+      startupScreen.hidden = false;
+      document.getElementById("auth-step").hidden = false;
+      document.getElementById("branch-step").hidden = true;
+      document.getElementById("add-branch-step").hidden = true;
+      authError.textContent = message;
+    }
+
+    async function loadBranches() {
+      const { data, error } = await supabaseClient
+        .from("warranty_branches")
+        .select("id, name")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      branches = data || [];
+      if (!branches.length) {
+        const { data: created, error: createError } = await supabaseClient
+          .rpc("create_warranty_branch", { branch_name: "Robmanila" });
+        if (createError) throw createError;
+        const branch = Array.isArray(created) ? created[0] : created;
+        if (branch) branches = [branch];
+      }
+      renderBranches();
+      document.getElementById("auth-step").hidden = true;
+      document.getElementById("add-branch-step").hidden = true;
+      document.getElementById("branch-step").hidden = false;
+    }
+
+    async function showBranchChooser() {
+      if (!supabaseClient) {
+        showAuth("The Supabase client did not load. Check your internet connection, then reload this page.");
+        return;
+      }
+      authError.textContent = "";
+      try {
+        await loadBranches();
+      } catch (error) {
+        showAuth(`Could not load your cloud branches: ${error.message}. Make sure you have run supabase-setup.sql in your Supabase project.`);
+      }
+    }
+
+    async function enterDashboard(branch) {
+      selectedBranch = branch;
+      records = [];
+      renderCounts();
+      renderRecords();
+      document.getElementById("signed-in-name").textContent = branch.name;
+      document.getElementById("signed-in-branch").textContent = currentUser.email;
+      document.getElementById("account-avatar").textContent = (currentUser.email || "U").slice(0, 2).toLocaleUpperCase();
+      document.getElementById("account-avatar").setAttribute("aria-label", `Signed in as ${currentUser.email}`);
+      document.getElementById("sync-message").textContent = "";
+      startupScreen.hidden = true;
+      appShell.hidden = false;
+      await loadRecords();
+    }
+
+    document.getElementById("login-tab").addEventListener("click", () => setAuthMode("login"));
+    document.getElementById("register-tab").addEventListener("click", () => setAuthMode("register"));
+    authForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!supabaseClient) {
+        authError.textContent = "Supabase is unavailable. Check your internet connection and reload.";
+        return;
+      }
+      if (!authForm.reportValidity()) return;
+      const submit = document.getElementById("auth-submit");
+      submit.disabled = true;
+      authError.textContent = "";
+      const email = document.getElementById("auth-email").value.trim();
+      const password = document.getElementById("auth-password").value;
+      try {
+        const result = authMode === "register"
+          ? await supabaseClient.auth.signUp({ email, password })
+          : await supabaseClient.auth.signInWithPassword({ email, password });
+        if (result.error) throw result.error;
+        if (authMode === "register" && !result.data.session) {
+          authError.textContent = "Account created. Check your email to confirm it, then return here to log in.";
+          return;
+        }
+        currentUser = result.data.user;
+        await showBranchChooser();
+      } catch (error) {
+        authError.textContent = error.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    document.getElementById("branch-list").addEventListener("click", event => {
+      const button = event.target.closest("[data-branch-id]");
+      if (!button) return;
+      selectedBranch = branches.find(branch => branch.id === button.dataset.branchId);
+      if (!selectedBranch) return;
+      enterDashboard(selectedBranch).catch(error => showSyncError("Could not open branch", error));
+    });
+    document.getElementById("back-to-login").addEventListener("click", async () => {
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) {
+        authError.textContent = `Could not sign out: ${error.message}`;
+        return;
+      }
+      currentUser = null;
+      branches = [];
+      showAuth();
+    });
+    document.getElementById("show-add-branch").addEventListener("click", () => {
+      document.getElementById("branch-step").hidden = true;
+      document.getElementById("add-branch-step").hidden = false;
+      document.getElementById("new-branch-name").focus();
+    });
+    document.getElementById("cancel-add-branch").addEventListener("click", () => {
+      document.getElementById("add-branch-form").reset();
+      document.getElementById("add-branch-error").textContent = "";
+      document.getElementById("add-branch-step").hidden = true;
+      document.getElementById("branch-step").hidden = false;
+    });
+    document.getElementById("logout-button").addEventListener("click", async () => {
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) {
+        showSyncError("Could not sign out", error);
+        return;
+      }
+      currentUser = null;
+      selectedBranch = null;
+      appShell.hidden = true;
+      showAuth();
+    });
+    document.getElementById("add-branch-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      if (!currentUser || !form.reportValidity()) return;
+      const name = document.getElementById("new-branch-name").value.trim();
+      const error = document.getElementById("add-branch-error");
+      if (branches.some(branch => branch.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) {
+        error.textContent = "A branch with that name already exists.";
+        return;
+      }
+      try {
+        const { data, error: createError } = await supabaseClient
+          .rpc("create_warranty_branch", { branch_name: name });
+        if (createError) throw createError;
+        const branch = Array.isArray(data) ? data[0] : data;
+        if (!branch) throw new Error("Supabase did not return the new branch.");
+        branches.push(branch);
+        renderBranches();
+        form.reset();
+        error.textContent = "";
+        document.getElementById("add-branch-step").hidden = true;
+        document.getElementById("branch-step").hidden = false;
+      } catch (createError) {
+        error.textContent = `Could not create the branch: ${createError.message}`;
+      }
+    });
+
+    function showSyncError(action, error) {
+      const message = document.getElementById("sync-message");
+      message.classList.remove("success");
+      message.textContent = `${action}: ${error.message || error}`;
+    }
+
+    function showSyncSuccess(text) {
+      const message = document.getElementById("sync-message");
+      message.classList.add("success");
+      message.textContent = text;
+    }
+
+    function mapRecord(row) {
+      const receivedOn = new Date(`${row.received_on}T12:00:00`);
+      return {
+        dbId: row.id,
+        id: row.slip_no,
+        customer: row.customer_name,
+        item: row.item_name,
+        status: row.status,
+        date: new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", year: "numeric" }).format(receivedOn),
+        attachmentPath: row.attachment_path || null,
+        attachmentUrl: null,
+        receivedOn: row.received_on
+      };
+    }
+
+    async function loadRecords() {
+      if (!selectedBranch) return;
+      const { data, error } = await supabaseClient
+        .from("warranty_records")
+        .select("id, slip_no, customer_name, item_name, status, received_on, attachment_path")
+        .eq("branch_id", selectedBranch.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      records = (data || []).map(mapRecord);
+      await Promise.all(records.map(async record => {
+        if (!record.attachmentPath) return null;
+        const { data: signedUrl, error: urlError } = await supabaseClient.storage
+          .from("warranty-slips")
+          .createSignedUrl(record.attachmentPath, 60 * 60);
+        if (urlError) throw urlError;
+        record.attachmentUrl = signedUrl.signedUrl;
+      }));
+      renderCounts();
+      renderRecords();
+    }
+
+    supabaseClient?.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        showAuth(`Could not restore your session: ${error.message}`);
+        return;
+      }
+      if (data.session) {
+        currentUser = data.session.user;
+        showBranchChooser();
+      }
+    }).catch(error => showAuth(`Could not connect to Supabase: ${error.message}`));
+    if (!supabaseClient) {
+      authError.textContent = "Supabase could not load. Check your internet connection and reload this page.";
+    }
+
+    function renderRecords() {
+      const query = document.getElementById("search").value.trim().toLocaleLowerCase();
+      const filtered = records.filter(record => {
+        const matchesFilter = activeFilter === "all" || record.status === activeFilter;
+        const matchesSearch = `${record.id} ${record.customer} ${record.item} ${labels[record.status]}`
+          .toLocaleLowerCase().includes(query);
+        return matchesFilter && matchesSearch;
+      });
+      const list = document.getElementById("record-list");
+      document.getElementById("result-count").textContent =
+        `Showing ${filtered.length} ${filtered.length === 1 ? "record" : "records"}`;
+
+      if (!filtered.length) {
+        const emptyTitle = records.length ? "No matching service slips" : "No service slips yet";
+        const emptyCopy = records.length
+          ? "Try another search or choose a different status."
+          : "Add a service slip and it will sync to this branch.";
+        list.innerHTML = `<div class="empty-state"><strong>${emptyTitle}</strong>${emptyCopy}</div>`;
+        document.getElementById("panel-footer").textContent = records.length ? "No records match your filters" : "Your cloud logbook is ready";
+        return;
+      }
+
+      list.innerHTML = filtered.map(record => `
+        <article class="record-row">
+          <span class="ticket">${escapeHtml(record.id)}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
+          <span class="customer-name">${escapeHtml(record.customer)}</span>
+          <span class="product-name">${escapeHtml(record.item)}</span>
+          <div class="status-actions">
+            <span class="status-pill status-${record.status}">${labels[record.status]}</span>
+            <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.id)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
+          </div>
+        </article>`).join("");
+      document.getElementById("panel-footer").textContent = `Showing ${filtered.length} of ${records.length} service slips`;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      })[character]);
+    }
+
+    function renderCounts() {
+      document.getElementById("count-all").textContent = records.length;
+      for (const status of Object.keys(labels)) {
+        document.getElementById(`count-${status}`).textContent =
+          records.filter(record => record.status === status).length;
+      }
+    }
+
+    document.getElementById("search").addEventListener("input", renderRecords);
+    document.getElementById("summary-grid").addEventListener("click", event => {
+      const card = event.target.closest(".summary-card");
+      if (!card) return;
+      activeFilter = card.dataset.filter;
+      document.querySelectorAll(".summary-card").forEach(button => {
+        button.setAttribute("aria-pressed", String(button === card));
+      });
+      renderRecords();
+    });
+
+    const statusModal = document.getElementById("status-modal");
+    const statusForm = document.getElementById("status-form");
+    function closeStatusModal() {
+      statusModal.hidden = true;
+      statusForm.reset();
+      editingRecordId = null;
+    }
+    document.getElementById("record-list").addEventListener("click", event => {
+      const button = event.target.closest("[data-edit-id]");
+      if (!button) return;
+      const record = records.find(entry => entry.dbId === button.dataset.editId);
+      if (!record) return;
+      editingRecordId = record.dbId;
+      document.getElementById("status-modal-description").textContent = `Choose a new status for ${record.id}.`;
+      document.getElementById("edit-status-select").value = record.status;
+      statusModal.hidden = false;
+      document.getElementById("edit-status-select").focus();
+    });
+    document.getElementById("close-status-modal").addEventListener("click", closeStatusModal);
+    document.getElementById("cancel-status-edit").addEventListener("click", closeStatusModal);
+    statusModal.addEventListener("click", event => { if (event.target === statusModal) closeStatusModal(); });
+    document.addEventListener("keydown", event => {
+      if (event.key !== "Escape") return;
+      if (!statusModal.hidden) closeStatusModal();
+      else if (!modal.hidden) closeModal();
+    });
+    statusForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const record = records.find(entry => entry.dbId === editingRecordId);
+      if (!record || !statusForm.reportValidity()) return;
+      const updatedStatus = document.getElementById("edit-status-select").value;
+      const { error } = await supabaseClient
+        .from("warranty_records")
+        .update({ status: updatedStatus })
+        .eq("id", record.dbId)
+        .eq("branch_id", selectedBranch.id)
+        .select("id")
+        .single();
+      if (error) {
+        showSyncError("Could not update status", error);
+        return;
+      }
+      record.status = updatedStatus;
+      renderCounts();
+      renderRecords();
+      showSyncSuccess("Status saved online.");
+      closeStatusModal();
+    });
+
+    const modal = document.getElementById("upload-modal");
+    const fileInput = document.getElementById("slip-file");
+    const fileName = document.getElementById("file-name");
+    const form = document.getElementById("record-form");
+    function closeModal() {
+      modal.hidden = true;
+      form.reset();
+      fileName.textContent = "";
+    }
+    document.getElementById("open-upload").addEventListener("click", () => {
+      modal.hidden = false;
+      document.getElementById("date-input").value = new Date().toISOString().slice(0, 10);
+      document.getElementById("customer-input").focus();
+    });
+    document.getElementById("close-modal").addEventListener("click", closeModal);
+    document.getElementById("cancel-modal").addEventListener("click", closeModal);
+    modal.addEventListener("click", event => { if (event.target === modal) closeModal(); });
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (!file) {
+        fileName.textContent = "";
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        fileInput.value = "";
+        fileName.textContent = "File is larger than 10 MB. Choose a smaller file.";
+        fileName.style.color = "#c6414e";
+        return;
+      }
+      fileName.style.color = "";
+      fileName.textContent = file.name;
+    });
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!selectedBranch || !form.reportValidity()) return;
+      const submit = document.getElementById("save-record");
+      submit.disabled = true;
+      const data = new FormData(form);
+      try {
+        const highestSlipNumber = records.reduce((highest, record) => {
+          const match = /^WR-(\d+)$/.exec(record.id);
+          return match ? Math.max(highest, Number(match[1])) : highest;
+        }, 0);
+        const slipNumber = `WR-${String(highestSlipNumber + 1).padStart(3, "0")}`;
+        const { data: row, error } = await supabaseClient
+          .from("warranty_records")
+          .insert({
+            branch_id: selectedBranch.id,
+            slip_no: slipNumber,
+            customer_name: data.get("customer").trim(),
+            item_name: data.get("item").trim(),
+            status: data.get("status"),
+            received_on: data.get("date")
+          })
+          .select("id, slip_no, customer_name, item_name, status, received_on, attachment_path")
+          .single();
+        if (error) throw error;
+        const savedRecord = mapRecord(row);
+        records.unshift(savedRecord);
+        let attachmentLinkFailed = false;
+        const slipFile = fileInput.files[0];
+        if (slipFile) {
+          const safeFileName = slipFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `${selectedBranch.id}/${savedRecord.dbId}/${safeFileName}`;
+          const { error: uploadError } = await supabaseClient.storage
+            .from("warranty-slips")
+            .upload(path, slipFile, { upsert: false, contentType: slipFile.type || "application/octet-stream" });
+          if (uploadError) {
+            renderCounts();
+            renderRecords();
+            closeModal();
+            showSyncError("Service slip saved, but its attachment could not be uploaded", uploadError);
+            return;
+          }
+          const { error: attachmentError } = await supabaseClient
+            .from("warranty_records")
+            .update({ attachment_path: path })
+            .eq("id", savedRecord.dbId)
+            .eq("branch_id", selectedBranch.id);
+          if (attachmentError) {
+            showSyncError("Record saved, but attachment linking failed", attachmentError);
+            attachmentLinkFailed = true;
+          } else {
+            savedRecord.attachmentPath = path;
+            const { data: signedUrl, error: urlError } = await supabaseClient.storage
+              .from("warranty-slips")
+              .createSignedUrl(path, 60 * 60);
+            if (urlError) {
+              showSyncError("Record and attachment saved, but its preview link could not be created", urlError);
+              attachmentLinkFailed = true;
+            } else {
+              savedRecord.attachmentUrl = signedUrl.signedUrl;
+            }
+          }
+        }
+        renderCounts();
+        activeFilter = "all";
+        document.querySelectorAll(".summary-card").forEach(button => {
+          button.setAttribute("aria-pressed", String(button.dataset.filter === "all"));
+        });
+        document.getElementById("search").value = "";
+        renderRecords();
+        if (!attachmentLinkFailed) showSyncSuccess("Service slip saved online.");
+        closeModal();
+      } catch (error) {
+        showSyncError("Could not save service slip", error);
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    renderCounts();
+    renderRecords();
+  </script>
+</body>
+</html>
