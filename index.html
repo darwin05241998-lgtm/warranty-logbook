@@ -244,6 +244,7 @@
     .branch-empty { padding: 15px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); font-size: 12px; text-align: center; }
     .sync-message { margin: 16px 24px 0; padding: 11px 13px; border: 1px solid #71414a; border-radius: 8px; background: #302127; color: #f29aa3; font-size: 12px; line-height: 1.5; }
     .sync-message:empty { display: none; }
+    .sync-message a { color: inherit; font-weight: 700; }
     .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin: 16px 0; border-radius: 9px; background: #121622; }
     .auth-tab { min-height: 38px; border: 0; border-radius: 7px; background: transparent; color: #98a1b5; font-size: 12px; font-weight: 650; }
     .auth-tab[aria-selected="true"] { background: #292e3d; color: #f0f1f6; }
@@ -560,7 +561,7 @@
         </select>
         <div class="modal-actions">
           <button class="secondary-button" id="cancel-status-edit" type="button">Cancel</button>
-          <button class="submit-button" type="submit">Save status</button>
+          <button class="submit-button" id="save-status" type="submit">Save status</button>
         </div>
       </form>
     </section>
@@ -590,6 +591,8 @@
     let selectedBranch = null;
     let authMode = "login";
     let currentUser = null;
+    let recordsChannel = null;
+    let recordsRefreshTimer = null;
 
     function renderBranches() {
       const list = document.getElementById("branch-list");
@@ -674,9 +677,16 @@
       document.getElementById("account-avatar").textContent = (currentUser.email || "U").slice(0, 2).toLocaleUpperCase();
       document.getElementById("account-avatar").setAttribute("aria-label", `Signed in as ${currentUser.email}`);
       document.getElementById("sync-message").textContent = "";
+      document.getElementById("sync-message").classList.remove("success");
       startupScreen.hidden = true;
       appShell.hidden = false;
-      await loadRecords();
+      await stopRecordsSync();
+      try {
+        await loadRecords();
+        startRecordsSync(branch.id);
+      } catch (error) {
+        showSyncError("Could not load cloud records", error);
+      }
     }
 
     document.getElementById("login-tab").addEventListener("click", () => setAuthMode("login"));
@@ -723,6 +733,7 @@
         authError.textContent = `Could not sign out: ${error.message}`;
         return;
       }
+      await stopRecordsSync();
       currentUser = null;
       branches = [];
       showAuth();
@@ -744,6 +755,7 @@
         showSyncError("Could not sign out", error);
         return;
       }
+      await stopRecordsSync();
       currentUser = null;
       selectedBranch = null;
       appShell.hidden = true;
@@ -812,16 +824,58 @@
         .order("created_at", { ascending: false });
       if (error) throw error;
       records = (data || []).map(mapRecord);
+      const attachmentErrors = [];
       await Promise.all(records.map(async record => {
         if (!record.attachmentPath) return null;
         const { data: signedUrl, error: urlError } = await supabaseClient.storage
           .from("warranty-slips")
           .createSignedUrl(record.attachmentPath, 60 * 60);
-        if (urlError) throw urlError;
+        if (urlError) {
+          attachmentErrors.push(`${record.id}: ${urlError.message}`);
+          return null;
+        }
         record.attachmentUrl = signedUrl.signedUrl;
       }));
       renderCounts();
       renderRecords();
+      if (attachmentErrors.length) {
+        showSyncError("Some slip attachments could not be loaded", new Error(attachmentErrors.join("; ")));
+      }
+    }
+
+    async function stopRecordsSync() {
+      if (recordsRefreshTimer !== null) {
+        window.clearTimeout(recordsRefreshTimer);
+        recordsRefreshTimer = null;
+      }
+      if (recordsChannel) {
+        const channel = recordsChannel;
+        recordsChannel = null;
+        await supabaseClient.removeChannel(channel);
+      }
+    }
+
+    function startRecordsSync(branchId) {
+      if (recordsChannel) supabaseClient.removeChannel(recordsChannel);
+      recordsChannel = supabaseClient
+        .channel(`warranty-records-${branchId}`)
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "warranty_records",
+          filter: `branch_id=eq.${branchId}`
+        }, () => {
+          if (recordsRefreshTimer !== null) window.clearTimeout(recordsRefreshTimer);
+          recordsRefreshTimer = window.setTimeout(() => {
+            recordsRefreshTimer = null;
+            loadRecords().catch(error => showSyncError("Could not refresh cloud records", error));
+          }, 150);
+        })
+        .subscribe((status, error) => {
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            showSyncError("Live sync disconnected; reload to refresh records", error || new Error(status));
+          }
+        });
     }
 
     supabaseClient?.auth.getSession().then(({ data, error }) => {
@@ -928,23 +982,28 @@
       event.preventDefault();
       const record = records.find(entry => entry.dbId === editingRecordId);
       if (!record || !statusForm.reportValidity()) return;
+      const submit = document.getElementById("save-status");
       const updatedStatus = document.getElementById("edit-status-select").value;
-      const { error } = await supabaseClient
-        .from("warranty_records")
-        .update({ status: updatedStatus })
-        .eq("id", record.dbId)
-        .eq("branch_id", selectedBranch.id)
-        .select("id")
-        .single();
-      if (error) {
+      submit.disabled = true;
+      try {
+        const { error } = await supabaseClient
+          .from("warranty_records")
+          .update({ status: updatedStatus })
+          .eq("id", record.dbId)
+          .eq("branch_id", selectedBranch.id)
+          .select("id")
+          .single();
+        if (error) throw error;
+        record.status = updatedStatus;
+        renderCounts();
+        renderRecords();
+        showSyncSuccess("Status saved online.");
+        closeStatusModal();
+      } catch (error) {
         showSyncError("Could not update status", error);
-        return;
+      } finally {
+        submit.disabled = false;
       }
-      record.status = updatedStatus;
-      renderCounts();
-      renderRecords();
-      showSyncSuccess("Status saved online.");
-      closeStatusModal();
     });
 
     const modal = document.getElementById("upload-modal");
@@ -986,25 +1045,15 @@
       submit.disabled = true;
       const data = new FormData(form);
       try {
-        const highestSlipNumber = records.reduce((highest, record) => {
-          const match = /^WR-(\d+)$/.exec(record.id);
-          return match ? Math.max(highest, Number(match[1])) : highest;
-        }, 0);
-        const slipNumber = `WR-${String(highestSlipNumber + 1).padStart(3, "0")}`;
-        const { data: row, error } = await supabaseClient
-          .from("warranty_records")
-          .insert({
-            branch_id: selectedBranch.id,
-            slip_no: slipNumber,
-            customer_name: data.get("customer").trim(),
-            item_name: data.get("item").trim(),
-            status: data.get("status"),
-            received_on: data.get("date")
-          })
-          .select("id, slip_no, customer_name, item_name, status, received_on, attachment_path")
-          .single();
+        const { data: row, error } = await supabaseClient.rpc("create_warranty_record", {
+          p_branch_id: selectedBranch.id,
+          p_customer_name: data.get("customer").trim(),
+          p_item_name: data.get("item").trim(),
+          p_status: data.get("status"),
+          p_received_on: data.get("date")
+        });
         if (error) throw error;
-        const savedRecord = mapRecord(row);
+        const savedRecord = mapRecord(Array.isArray(row) ? row[0] : row);
         records.unshift(savedRecord);
         let attachmentLinkFailed = false;
         const slipFile = fileInput.files[0];

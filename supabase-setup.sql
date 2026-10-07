@@ -1,6 +1,7 @@
 create table if not exists public.warranty_branches (
   id uuid primary key default gen_random_uuid(),
   name text not null check (char_length(trim(name)) between 1 and 40),
+  next_slip_number integer not null default 1 check (next_slip_number > 0),
   created_by uuid not null references auth.users (id) on delete cascade,
   created_at timestamptz not null default now()
 );
@@ -23,6 +24,20 @@ create table if not exists public.warranty_records (
   attachment_path text,
   created_at timestamptz not null default now(),
   unique (branch_id, slip_no)
+);
+
+alter table public.warranty_branches
+  add column if not exists next_slip_number integer not null default 1;
+
+update public.warranty_branches branch
+set next_slip_number = greatest(
+  branch.next_slip_number,
+  coalesce((
+    select max(substring(warranty_record.slip_no from 4)::integer) + 1
+    from public.warranty_records warranty_record
+    where warranty_record.branch_id = branch.id
+      and warranty_record.slip_no ~ '^WR-[0-9]+$'
+  ), 1)
 );
 
 alter table public.warranty_records
@@ -119,11 +134,84 @@ grant execute on function public.create_warranty_branch(text) to authenticated;
 
 grant select on public.warranty_branches to authenticated;
 grant select on public.warranty_branch_members to authenticated;
-grant select, insert, update on public.warranty_records to authenticated;
+grant select, update on public.warranty_records to authenticated;
+revoke insert on public.warranty_records from authenticated;
+
+create or replace function public.create_warranty_record(
+  p_branch_id uuid,
+  p_customer_name text,
+  p_item_name text,
+  p_status text,
+  p_received_on date
+)
+returns public.warranty_records
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  allocated_number integer;
+  new_record public.warranty_records;
+begin
+  if auth.uid() is null then
+    raise exception 'You must be signed in to add a service slip.';
+  end if;
+
+  if not exists (
+    select 1 from public.warranty_branch_members member
+    where member.branch_id = p_branch_id and member.user_id = auth.uid()
+  ) then
+    raise exception 'You are not a member of this branch.';
+  end if;
+
+  if p_customer_name is null or char_length(trim(p_customer_name)) not between 1 and 120 then
+    raise exception 'Customer name must be between 1 and 120 characters.';
+  end if;
+  if p_item_name is null or char_length(trim(p_item_name)) not between 1 and 120 then
+    raise exception 'Item name must be between 1 and 120 characters.';
+  end if;
+  if p_status is null or p_status not in ('ongoing', 'claimed', 'pending', 'pickup') then
+    raise exception 'Invalid service status.';
+  end if;
+  if p_received_on is null then
+    raise exception 'Date received is required.';
+  end if;
+
+  update public.warranty_branches
+  set next_slip_number = next_slip_number + 1
+  where id = p_branch_id
+  returning next_slip_number - 1 into allocated_number;
+
+  if allocated_number is null then
+    raise exception 'Branch was not found.';
+  end if;
+
+  insert into public.warranty_records (
+    branch_id, slip_no, customer_name, item_name, status, received_on
+  )
+  values (
+    p_branch_id,
+    'WR-' || lpad(allocated_number::text, 3, '0'),
+    trim(p_customer_name),
+    trim(p_item_name),
+    p_status,
+    p_received_on
+  )
+  returning * into new_record;
+
+  return new_record;
+end;
+$$;
+
+revoke all on function public.create_warranty_record(uuid, text, text, text, date) from public;
+grant execute on function public.create_warranty_record(uuid, text, text, text, date) to authenticated;
 
 insert into storage.buckets (id, name, public)
 values ('warranty-slips', 'warranty-slips', false)
-on conflict (id) do update set public = false;
+on conflict (id) do update
+set public = false,
+    file_size_limit = 10485760,
+    allowed_mime_types = array['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
 
 drop policy if exists "Members can read branch slip files" on storage.objects;
 create policy "Members can read branch slip files"
@@ -132,7 +220,7 @@ create policy "Members can read branch slip files"
     bucket_id = 'warranty-slips'
     and exists (
       select 1 from public.warranty_branch_members member
-      where member.branch_id = ((storage.foldername(name))[1])::uuid
+      where member.branch_id::text = (storage.foldername(name))[1]
         and member.user_id = (select auth.uid())
     )
   );
@@ -144,7 +232,7 @@ create policy "Members can upload branch slip files"
     bucket_id = 'warranty-slips'
     and exists (
       select 1 from public.warranty_branch_members member
-      where member.branch_id = ((storage.foldername(name))[1])::uuid
+      where member.branch_id::text = (storage.foldername(name))[1]
         and member.user_id = (select auth.uid())
     )
   );
@@ -156,7 +244,20 @@ create policy "Members can delete branch slip files"
     bucket_id = 'warranty-slips'
     and exists (
       select 1 from public.warranty_branch_members member
-      where member.branch_id = ((storage.foldername(name))[1])::uuid
+      where member.branch_id::text = (storage.foldername(name))[1]
         and member.user_id = (select auth.uid())
     )
   );
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'warranty_records'
+  ) then
+    alter publication supabase_realtime add table public.warranty_records;
+  end if;
+end;
+$$;
