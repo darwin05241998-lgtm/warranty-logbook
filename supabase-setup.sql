@@ -234,7 +234,7 @@ begin
   )
   values (
     p_branch_id,
-    'WR-' || lpad(allocated_number::text, 3, '0'),
+    'LOG-' || lpad(allocated_number::text, 3, '0'),
     trim(p_customer_name),
     trim(p_item_name),
     p_status,
