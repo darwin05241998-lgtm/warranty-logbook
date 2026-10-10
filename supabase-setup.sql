@@ -36,6 +36,7 @@ set next_slip_number = greatest(
     select max(substring(warranty_record.slip_no from 4)::integer) + 1
     from public.warranty_records warranty_record
     where warranty_record.branch_id = branch.id
+      and warranty_record.slip_no ~ '^LOG-[0-9]+$'
   ), 1)
 );
 
