@@ -1250,10 +1250,29 @@
         if (authData.user?.id !== currentUser.id) {
           throw new Error("Could not confirm the password for the signed-in account.");
         }
-        const { data: attachmentPath, error } = await supabaseClient.rpc("delete_warranty_record", {
-          p_record_id: record.dbId
+        const accessToken = authData.session?.access_token;
+        if (!accessToken) {
+          throw new Error("Password confirmed, but Supabase did not return a fresh session. Please try again.");
+        }
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/delete_warranty_record`, {
+          method: "POST",
+          headers: {
+            apikey: SUPABASE_PUBLISHABLE_KEY,
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ p_record_id: record.dbId })
         });
-        if (error) throw error;
+        let result;
+        try {
+          result = await response.json();
+        } catch {
+          throw new Error(`Could not delete service slip (HTTP ${response.status}).`);
+        }
+        if (!response.ok) {
+          throw new Error(result.message || `Could not delete service slip (HTTP ${response.status}).`);
+        }
+        const attachmentPath = result;
         records = records.filter(entry => entry.dbId !== record.dbId);
         renderCounts();
         renderRecords();
