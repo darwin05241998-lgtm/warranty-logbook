@@ -170,16 +170,22 @@ security definer
 set search_path = ''
 as $$
 declare
-  authenticated_at bigint;
+  authenticated_at timestamptz;
   record_attachment_path text;
 begin
   if auth.uid() is null then
     raise exception 'You must be signed in to delete a service slip.';
   end if;
 
-  authenticated_at := coalesce((auth.jwt() ->> 'auth_time')::bigint, 0);
-  if authenticated_at < extract(epoch from now())::bigint - 300
-    or authenticated_at > extract(epoch from now())::bigint + 30 then
+  select auth_session.created_at
+  into authenticated_at
+  from auth.sessions auth_session
+  where auth_session.id = nullif(auth.jwt() ->> 'session_id', '')::uuid
+    and auth_session.user_id = auth.uid();
+
+  if authenticated_at is null
+    or authenticated_at < now() - interval '5 minutes'
+    or authenticated_at > now() + interval '30 seconds' then
     raise exception 'Re-enter your account password to confirm deletion.'
       using errcode = '28000';
   end if;
