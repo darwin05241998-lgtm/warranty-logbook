@@ -19,6 +19,7 @@ create table if not exists public.warranty_records (
   slip_no text not null,
   printed_slip_no text,
   customer_name text not null,
+  contact_number text,
   item_name text not null,
   serial_number text,
   status text not null check (status in ('ongoing', 'claimed', 'pending', 'pickup')),
@@ -60,6 +61,7 @@ alter table public.warranty_records
 
 alter table public.warranty_records
   add column if not exists printed_slip_no text,
+  add column if not exists contact_number text,
   add column if not exists serial_number text;
 
 create index if not exists warranty_records_branch_created_idx
@@ -210,6 +212,7 @@ revoke all on function public.delete_warranty_record(uuid) from public, anon;
 grant execute on function public.delete_warranty_record(uuid) to authenticated;
 
 drop function if exists public.create_warranty_record(uuid, text, text, text, date);
+drop function if exists public.create_warranty_record(uuid, text, text, text, date, text, text);
 
 create or replace function public.create_warranty_record(
   p_branch_id uuid,
@@ -218,7 +221,7 @@ create or replace function public.create_warranty_record(
   p_status text,
   p_received_on date,
   p_printed_slip_no text default null,
-  p_serial_number text default null
+  p_contact_number text default null
 )
 returns public.warranty_records
 language plpgsql
@@ -255,8 +258,8 @@ begin
   if p_printed_slip_no is null or char_length(trim(p_printed_slip_no)) not between 1 and 120 then
     raise exception 'Printed slip number must be between 1 and 120 characters.';
   end if;
-  if p_serial_number is not null and char_length(trim(p_serial_number)) not between 1 and 120 then
-    raise exception 'Serial number must be between 1 and 120 characters.';
+  if p_contact_number is not null and char_length(trim(p_contact_number)) not between 1 and 40 then
+    raise exception 'Contact number must be between 1 and 40 characters.';
   end if;
 
   update public.warranty_branches
@@ -278,15 +281,15 @@ begin
   end if;
 
   insert into public.warranty_records (
-    branch_id, slip_no, printed_slip_no, customer_name, item_name, serial_number, status, received_on
+    branch_id, slip_no, printed_slip_no, customer_name, contact_number, item_name, status, received_on
   )
   values (
     p_branch_id,
     'TICKET NO.-' || lpad(allocated_number::text, 3, '0'),
     nullif(trim(p_printed_slip_no), ''),
     trim(p_customer_name),
+    nullif(trim(p_contact_number), ''),
     trim(p_item_name),
-    nullif(trim(p_serial_number), ''),
     p_status,
     p_received_on
   )

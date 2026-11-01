@@ -591,8 +591,8 @@
             <input class="form-input" id="printed-slip-input" name="printedSlipNo" placeholder="Enter the ticket number" required maxlength="120">
           </div>
           <div>
-            <label class="field-label" for="serial-input">Serial number</label>
-            <input class="form-input" id="serial-input" name="serialNumber" placeholder="If shown on the slip" maxlength="120">
+            <label class="field-label" for="contact-input">Contact number</label>
+            <input class="form-input" id="contact-input" name="contactNumber" type="tel" autocomplete="tel" placeholder="e.g. 0917 123 4567" maxlength="40">
           </div>
         </div>
         <div class="form-grid">
@@ -952,8 +952,8 @@
         id: row.printed_slip_no || row.slip_no,
         printedSlipNo: row.printed_slip_no || null,
         customer: row.customer_name,
+        contactNumber: row.contact_number || null,
         item: row.item_name,
-        serialNumber: row.serial_number || null,
         status: row.status,
         date: new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", year: "numeric" }).format(receivedOn),
         attachmentPath: row.attachment_path || null,
@@ -966,7 +966,7 @@
       if (!selectedBranch) return;
       const { data, error } = await supabaseClient
         .from("warranty_records")
-        .select("id, slip_no, printed_slip_no, customer_name, item_name, serial_number, status, received_on, attachment_path")
+        .select("id, slip_no, printed_slip_no, customer_name, contact_number, item_name, status, received_on, attachment_path")
         .eq("branch_id", selectedBranch.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -1097,7 +1097,7 @@
       const query = document.getElementById("search").value.trim().toLocaleLowerCase();
       const filtered = records.filter(record => {
         const matchesFilter = activeFilter === "all" || record.status === activeFilter;
-        const matchesSearch = `${record.id} ${record.printedSlipNo || ""} ${record.customer} ${record.item} ${record.serialNumber || ""} ${labels[record.status]}`
+        const matchesSearch = `${record.id} ${record.printedSlipNo || ""} ${record.customer} ${record.contactNumber || ""} ${record.item} ${labels[record.status]}`
           .toLocaleLowerCase().includes(query);
         return matchesFilter && matchesSearch;
       });
@@ -1118,8 +1118,8 @@
       list.innerHTML = filtered.map(record => `
         <article class="record-row">
           <span class="ticket">${escapeHtml(record.id)}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
-          <span class="customer-name">${escapeHtml(record.customer)}</span>
-          <span class="product-name">${escapeHtml(record.item)}${record.serialNumber ? `<span class="ticket-date">Serial: ${escapeHtml(record.serialNumber)}</span>` : ""}</span>
+          <span class="customer-name">${escapeHtml(record.customer)}${record.contactNumber ? `<span class="ticket-date">${escapeHtml(record.contactNumber)}</span>` : ""}</span>
+          <span class="product-name">${escapeHtml(record.item)}</span>
           <div class="status-actions">
             <span class="status-pill status-${record.status}">${labels[record.status]}</span>
             <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.dbId)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
@@ -1403,16 +1403,13 @@
       const customer = readOcrField(words, [["customer"]], imageWidth, 0.62);
       const item = readOcrField(words, [["item", "description"], ["description"]], imageWidth);
       const printedSlipText = readOcrField(words, [["ticket", "no"], ["ticket", "number"], ["service", "slip"]], imageWidth);
-      const serial = readOcrField(words, [["serial", "no"], ["serial"]], imageWidth);
       const dateText = readOcrField(words, [["date"]], imageWidth);
       const printedSlipNo = printedSlipText.match(/\d{2,}/);
-      const serialNumber = serial.match(/[a-z0-9-]{3,}/i);
       const parsedDate = parseOcrDate(dateText);
       const fields = [
         ["customer-input", customer],
         ["item-input", item],
-        ["printed-slip-input", printedSlipNo ? printedSlipNo[0] : ""],
-        ["serial-input", serialNumber ? serialNumber[0] : ""]
+        ["printed-slip-input", printedSlipNo ? printedSlipNo[0] : ""]
       ];
       for (const [id, value] of fields) {
         if (value) document.getElementById(id).value = value;
@@ -1510,7 +1507,7 @@
         ocrStatus.textContent = "PDF attached. Enter the details below manually; photo reading is for images.";
         return;
       }
-      for (const id of ["customer-input", "item-input", "printed-slip-input", "serial-input", "date-input"]) {
+      for (const id of ["customer-input", "item-input", "printed-slip-input", "contact-input", "date-input"]) {
         document.getElementById(id).value = "";
       }
       if (!window.Tesseract) {
@@ -1593,7 +1590,7 @@
           p_status: data.get("status"),
           p_received_on: data.get("date"),
           p_printed_slip_no: data.get("printedSlipNo").trim() || null,
-          p_serial_number: data.get("serialNumber").trim() || null
+          p_contact_number: data.get("contactNumber").trim() || null
         });
         if (error) throw error;
         const savedRecord = mapRecord(Array.isArray(row) ? row[0] : row);
