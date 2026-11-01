@@ -17,8 +17,10 @@ create table if not exists public.warranty_records (
   id uuid primary key default gen_random_uuid(),
   branch_id uuid not null references public.warranty_branches (id) on delete cascade,
   slip_no text not null,
+  printed_slip_no text,
   customer_name text not null,
   item_name text not null,
+  serial_number text,
   status text not null check (status in ('ongoing', 'claimed', 'pending', 'pickup')),
   received_on date not null,
   attachment_path text,
@@ -33,15 +35,32 @@ update public.warranty_branches branch
 set next_slip_number = greatest(
   branch.next_slip_number,
   coalesce((
-    select max(substring(warranty_record.slip_no from 4)::integer) + 1
+    select max(
+      case
+        when warranty_record.slip_no ~ '^TICKET NO\.-[0-9]+$'
+          then substring(warranty_record.slip_no from '^TICKET NO\.-([0-9]+)$')::integer
+        when warranty_record.slip_no ~ '^LOG-[0-9]+$'
+          then substring(warranty_record.slip_no from 5)::integer
+        when warranty_record.slip_no ~ '^WR-[0-9]+$'
+          then substring(warranty_record.slip_no from 4)::integer
+      end
+    ) + 1
     from public.warranty_records warranty_record
     where warranty_record.branch_id = branch.id
-      and warranty_record.slip_no ~ '^LOG-[0-9]+$'
+      and (
+        warranty_record.slip_no ~ '^TICKET NO\.-[0-9]+$'
+        or warranty_record.slip_no ~ '^LOG-[0-9]+$'
+        or warranty_record.slip_no ~ '^WR-[0-9]+$'
+      )
   ), 1)
 );
 
 alter table public.warranty_records
   add column if not exists attachment_path text;
+
+alter table public.warranty_records
+  add column if not exists printed_slip_no text,
+  add column if not exists serial_number text;
 
 create index if not exists warranty_records_branch_created_idx
   on public.warranty_records (branch_id, created_at desc);
@@ -180,12 +199,16 @@ $$;
 revoke all on function public.delete_warranty_record(uuid) from public, anon;
 grant execute on function public.delete_warranty_record(uuid) to authenticated;
 
+drop function if exists public.create_warranty_record(uuid, text, text, text, date);
+
 create or replace function public.create_warranty_record(
   p_branch_id uuid,
   p_customer_name text,
   p_item_name text,
   p_status text,
-  p_received_on date
+  p_received_on date,
+  p_printed_slip_no text default null,
+  p_serial_number text default null
 )
 returns public.warranty_records
 language plpgsql
@@ -219,6 +242,12 @@ begin
   if p_received_on is null then
     raise exception 'Date received is required.';
   end if;
+  if p_printed_slip_no is not null and char_length(trim(p_printed_slip_no)) not between 1 and 120 then
+    raise exception 'Printed slip number must be between 1 and 120 characters.';
+  end if;
+  if p_serial_number is not null and char_length(trim(p_serial_number)) not between 1 and 120 then
+    raise exception 'Serial number must be between 1 and 120 characters.';
+  end if;
 
   update public.warranty_branches
   set next_slip_number = next_slip_number + 1
@@ -230,13 +259,15 @@ begin
   end if;
 
   insert into public.warranty_records (
-    branch_id, slip_no, customer_name, item_name, status, received_on
+    branch_id, slip_no, printed_slip_no, customer_name, item_name, serial_number, status, received_on
   )
   values (
     p_branch_id,
-    'LOG-' || lpad(allocated_number::text, 3, '0'),
+    'TICKET NO.-' || lpad(allocated_number::text, 3, '0'),
+    nullif(trim(p_printed_slip_no), ''),
     trim(p_customer_name),
     trim(p_item_name),
+    nullif(trim(p_serial_number), ''),
     p_status,
     p_received_on
   )
@@ -246,8 +277,8 @@ begin
 end;
 $$;
 
-revoke all on function public.create_warranty_record(uuid, text, text, text, date) from public;
-grant execute on function public.create_warranty_record(uuid, text, text, text, date) to authenticated;
+revoke all on function public.create_warranty_record(uuid, text, text, text, date, text, text) from public;
+grant execute on function public.create_warranty_record(uuid, text, text, text, date, text, text) to authenticated;
 
 insert into storage.buckets (id, name, public)
 values ('warranty-slips', 'warranty-slips', false)

@@ -3,27 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#10131c">
+  <meta name="theme-color" content="#080d19">
   <title>Warranty Logbook</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <style>
     :root {
       color-scheme: dark;
-      --ink: #e8eaf2;
-      --muted: #929bb0;
-      --line: #2b3141;
-      --surface: #191d29;
-      --canvas: #10131c;
-      --accent: #8b83ff;
-      --accent-dark: #776ef0;
-      --shadow: 0 14px 36px rgba(0, 0, 0, .28);
+      --ink: #edf4ff;
+      --muted: #9aaac3;
+      --line: #263650;
+      --surface: #111c2e;
+      --canvas: #080d19;
+      --accent: #91b9ff;
+      --accent-dark: #7396f5;
+      --shadow: 0 18px 44px rgba(0, 0, 0, .34);
     }
 
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-width: 320px;
-      background: var(--canvas);
+      background-color: var(--canvas);
+      background-image:
+        linear-gradient(180deg, rgba(5, 9, 20, .28), rgba(5, 9, 20, .58)),
+        linear-gradient(90deg, rgba(5, 9, 20, .32), rgba(7, 11, 23, .12) 50%, rgba(5, 9, 20, .4)),
+        radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, .75) 50%, transparent 100%),
+        radial-gradient(1px 1px at 28% 72%, rgba(198, 215, 255, .7) 50%, transparent 100%),
+        radial-gradient(1px 1px at 48% 32%, rgba(255, 255, 255, .65) 50%, transparent 100%),
+        radial-gradient(1px 1px at 69% 81%, rgba(198, 215, 255, .7) 50%, transparent 100%),
+        radial-gradient(1px 1px at 86% 24%, rgba(255, 255, 255, .75) 50%, transparent 100%),
+        radial-gradient(ellipse at 72% 18%, rgba(41, 54, 91, .36), transparent 52%),
+        radial-gradient(ellipse at 18% 74%, rgba(35, 44, 75, .32), transparent 48%);
+      background-position: center;
+      background-size: cover;
+      background-attachment: fixed;
       color: var(--ink);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       -webkit-font-smoothing: antialiased;
@@ -48,7 +62,7 @@
     .brand-mark {
       width: 38px; height: 38px;
       display: grid; place-items: center;
-      color: #fff; background: var(--accent);
+      color: #fff;       background: linear-gradient(135deg, #7dbdff, #9b8cff);
       border-radius: 12px;
     }
     .brand-mark svg { width: 21px; height: 21px; }
@@ -203,6 +217,9 @@
     .file-title { color: #333d4d; font-size: 12px; font-weight: 700; }
     .file-hint { margin-top: 4px; color: var(--muted); font-size: 11px; }
     .file-name { margin-top: 5px; color: var(--accent); font-size: 11px; overflow-wrap: anywhere; }
+    .ocr-status { min-height: 17px; margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .ocr-status.error { color: #f29aa3; }
+    .ocr-status.success { color: #72d6a7; }
     .field-label { display: block; margin: 17px 0 7px; color: #475365; font-size: 11px; font-weight: 700; }
     .form-input, .form-select {
       width: 100%; height: 41px; padding: 0 11px; border: 1px solid #e1e6ed;
@@ -268,54 +285,88 @@
     .logout-button:hover { border-color: #cdd3de; color: var(--ink); }
 
     .topbar, .summary-card, .records-panel { background: var(--surface); }
-    .avatar, .file-icon, .branch-pin { background: #28243f; color: #b1aaff; }
+    .topbar {
+      background: rgba(15, 25, 42, .9);
+      border-color: rgba(102, 133, 183, .2);
+      backdrop-filter: blur(16px);
+    }
+    .brand-mark {
+      background: linear-gradient(145deg, #68baff, #897bff);
+      box-shadow: 0 0 24px rgba(112, 151, 255, .27);
+    }
+    .avatar, .file-icon, .branch-pin { background: #1b2b46; color: #a9caff; }
+    .summary-card, .records-panel, .startup-card {
+      border-color: rgba(102, 133, 183, .22);
+      background: linear-gradient(155deg, rgba(20, 33, 54, .97), rgba(13, 22, 38, .98));
+    }
+    .summary-card:hover {
+      border-color: rgba(132, 169, 232, .42);
+    }
     .summary-card { box-shadow: 0 3px 12px rgba(0, 0, 0, .12); }
     .summary-card[aria-pressed="true"] {
       border-color: color-mix(in srgb, var(--status) 62%, #272b38);
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--status) 19%, transparent);
     }
-    .summary-label { color: #c1c6d4; }
-    .summary-note, .ticket-date, .panel-footer { color: #8791a6; }
+    .summary-label { color: #c5d1e4; }
+    .summary-note, .ticket-date, .panel-footer { color: #93a4bf; }
     .records-panel { box-shadow: 0 4px 16px rgba(0, 0, 0, .14); }
     .search-wrap svg { color: #8993a8; }
     .search-input, .form-input, .form-select {
-      border-color: #343b4e; background: #121622; color: var(--ink);
+      border-color: #30425f; background: #0b1423; color: var(--ink);
       color-scheme: dark;
     }
     .search-input::placeholder, .form-input::placeholder { color: #778197; }
     .search-input:focus, .form-input:focus, .form-select:focus {
-      border-color: #8279f4; box-shadow: 0 0 0 3px rgba(139, 131, 255, .16);
+      border-color: #83b8ff; box-shadow: 0 0 0 3px rgba(116, 169, 255, .18);
     }
     .table-head {
-      border-color: var(--line); background: #151925; color: #8993a8;
+      border-color: var(--line); background: #0d1727; color: #9cacc3;
     }
-    .record-row { border-color: #272d3b; }
-    .record-row:hover { background: #202534; }
-    .product-name { color: #b1b9c9; }
+    .record-row { border-color: #25334a; }
+    .record-row:hover { background: rgba(69, 99, 148, .12); }
+    .product-name { color: #c0cde0; }
     .status-ongoing { color: #f0c36d; background: #382d19; }
     .status-claimed { color: #72d6a7; background: #19372d; }
     .status-pending { color: #f18c96; background: #3a2329; }
-    .status-pickup { color: #88b9ff; background: #1d2d45; }
+    .status-pickup { color: #a6cbff; background: #1a2d49; }
     .panel-footer { border-color: var(--line); }
-    .modal-backdrop { background: rgba(3, 5, 10, .72); }
-    .modal { background: #191d29; box-shadow: 0 22px 70px rgba(0, 0, 0, .5); }
-    .close-button { background: #272d3b; color: #aab2c3; }
-    .file-label { border-color: #514b7f; background: #201e32; }
-    .file-title { color: #e4e7f0; }
-    .field-label { color: #c5cad6; }
-    .secondary-button { border-color: #343b4e; background: #202534; color: #c3c9d6; }
-    .startup {
-      background: radial-gradient(ellipse at 50% 0%, #201d3a 0%, var(--canvas) 58%);
+    .modal-backdrop { background: rgba(3, 7, 16, .78); backdrop-filter: blur(8px); }
+    .modal {
+      border: 1px solid rgba(117, 151, 203, .28);
+      background: linear-gradient(155deg, #17243a, #101a2b);
+      box-shadow: 0 26px 80px rgba(0, 0, 0, .62);
     }
-    .startup-card { box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
-    .branch-choice { border-color: #303648; background: #1c202d; color: var(--ink); }
-    .branch-choice:hover { border-color: #625ba2; background: #232338; }
-    .branch-empty { border-color: #343b4e; }
-    .startup-back, .add-branch-button { color: #a6aec0; }
-    .add-branch-button { color: #aaa3ff; }
-    .account-name { color: #e0e4ed; }
-    .logout-button { border-color: #343b4e; background: #1d2230; color: #bac1d0; }
-    .logout-button:hover { border-color: #505a70; color: #f0f2f7; }
+    .close-button { background: #22314a; color: #bdcce2; }
+    .close-button:hover { background: #2c3d59; color: #fff; }
+    .file-label { border-color: #49638a; background: rgba(27, 46, 74, .55); }
+    .file-label:hover { border-color: #82b6ff; background: rgba(36, 60, 94, .64); }
+    .file-title { color: #e8f0fc; }
+    .field-label { color: #c9d6e9; }
+    .secondary-button { border-color: #344761; background: #1a2940; color: #c5d2e5; }
+    .secondary-button:hover { border-color: #607ca5; background: #22344e; color: #f2f6ff; }
+    .startup { background: transparent; }
+    .startup-card { box-shadow: 0 24px 72px rgba(0, 0, 0, .48); }
+    .branch-choice { border-color: #30425d; background: #142238; color: var(--ink); }
+    .branch-choice:hover { border-color: #759ee0; background: #1a2c47; }
+    .branch-empty { border-color: #344761; }
+    .startup-back, .add-branch-button { color: #aebbd0; }
+    .startup-back:hover, .add-branch-button:hover { color: #dceaff; }
+    .add-branch-button { color: #a9caff; }
+    .account-name { color: #e1ebfa; }
+    .logout-button { border-color: #344761; background: #17263b; color: #c5d2e5; }
+    .logout-button:hover { border-color: #7595c2; color: #f0f6ff; }
+    .auth-error { color: #ff9eaa; }
+    .auth-footnote { color: #9aaac3; }
+    .sync-message {
+      border-color: rgba(242, 125, 143, .32);
+      background: rgba(70, 35, 48, .75);
+      color: #ffabb5;
+    }
+    .sync-message.success {
+      border-color: rgba(91, 207, 160, .3);
+      background: rgba(22, 62, 54, .72);
+      color: #8ee0bb;
+    }
 
     @media (max-width: 900px) {
       main { width: min(100% - 40px, 800px); }
@@ -517,7 +568,7 @@
       <div class="modal-heading">
         <div>
           <h2 id="modal-title">Add a service slip</h2>
-          <p class="modal-description">Choose a slip image or PDF, then enter the details to add it to your logbook.</p>
+          <p class="modal-description">Choose or photograph a completed slip. We’ll read the photo on this device and fill in what we can; check and correct every field before saving.</p>
         </div>
         <button class="close-button" id="close-modal" type="button" aria-label="Close dialog">&times;</button>
       </div>
@@ -526,13 +577,24 @@
           <span class="file-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg>
           </span>
-          <span><span class="file-title">Choose a slip to attach</span><span class="file-hint">JPEG, PNG, GIF, WebP, or PDF, up to 10 MB</span><span class="file-name" id="file-name"></span></span>
+          <span><span class="file-title">Photograph or choose a slip</span><span class="file-hint">Photos are read on this device. JPEG, PNG, GIF, WebP, or PDF, up to 10 MB</span><span class="file-name" id="file-name"></span></span>
         </label>
-        <input class="sr-only" id="slip-file" type="file" accept="image/jpeg,image/png,image/gif,image/webp,.pdf,application/pdf">
+        <input class="sr-only" id="slip-file" type="file" accept="image/jpeg,image/png,image/gif,image/webp,.pdf,application/pdf" capture="environment">
+        <div class="ocr-status" id="ocr-status" role="status" aria-live="polite"></div>
         <label class="field-label" for="customer-input">Customer name</label>
         <input class="form-input" id="customer-input" name="customer" placeholder="e.g. Juan Dela Cruz" required maxlength="120">
         <label class="field-label" for="item-input">Item</label>
         <input class="form-input" id="item-input" name="item" placeholder="e.g. MSI Laptop" required maxlength="120">
+        <div class="form-grid">
+          <div>
+            <label class="field-label" for="printed-slip-input">Printed slip number</label>
+            <input class="form-input" id="printed-slip-input" name="printedSlipNo" placeholder="e.g. 97850" maxlength="120">
+          </div>
+          <div>
+            <label class="field-label" for="serial-input">Serial number</label>
+            <input class="form-input" id="serial-input" name="serialNumber" placeholder="If shown on the slip" maxlength="120">
+          </div>
+        </div>
         <div class="form-grid">
           <div>
             <label class="field-label" for="status-input">Status</label>
@@ -888,8 +950,10 @@
       return {
         dbId: row.id,
         id: row.slip_no,
+        printedSlipNo: row.printed_slip_no || null,
         customer: row.customer_name,
         item: row.item_name,
+        serialNumber: row.serial_number || null,
         status: row.status,
         date: new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", year: "numeric" }).format(receivedOn),
         attachmentPath: row.attachment_path || null,
@@ -902,7 +966,7 @@
       if (!selectedBranch) return;
       const { data, error } = await supabaseClient
         .from("warranty_records")
-        .select("id, slip_no, customer_name, item_name, status, received_on, attachment_path")
+        .select("id, slip_no, printed_slip_no, customer_name, item_name, serial_number, status, received_on, attachment_path")
         .eq("branch_id", selectedBranch.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -1033,7 +1097,7 @@
       const query = document.getElementById("search").value.trim().toLocaleLowerCase();
       const filtered = records.filter(record => {
         const matchesFilter = activeFilter === "all" || record.status === activeFilter;
-        const matchesSearch = `${record.id} ${record.customer} ${record.item} ${labels[record.status]}`
+        const matchesSearch = `${record.id} ${record.printedSlipNo || ""} ${record.customer} ${record.item} ${record.serialNumber || ""} ${labels[record.status]}`
           .toLocaleLowerCase().includes(query);
         return matchesFilter && matchesSearch;
       });
@@ -1053,9 +1117,9 @@
 
       list.innerHTML = filtered.map(record => `
         <article class="record-row">
-          <span class="ticket">${escapeHtml(record.id)}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
+          <span class="ticket">${escapeHtml(record.id)}${record.printedSlipNo ? `<span class="ticket-date">Slip #${escapeHtml(record.printedSlipNo)}</span>` : ""}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
           <span class="customer-name">${escapeHtml(record.customer)}</span>
-          <span class="product-name">${escapeHtml(record.item)}</span>
+          <span class="product-name">${escapeHtml(record.item)}${record.serialNumber ? `<span class="ticket-date">Serial: ${escapeHtml(record.serialNumber)}</span>` : ""}</span>
           <div class="status-actions">
             <span class="status-pill status-${record.status}">${labels[record.status]}</span>
             <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.dbId)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
@@ -1217,7 +1281,10 @@
     const modal = document.getElementById("upload-modal");
     const fileInput = document.getElementById("slip-file");
     const fileName = document.getElementById("file-name");
+    const ocrStatus = document.getElementById("ocr-status");
     const form = document.getElementById("record-form");
+    const saveRecordButton = document.getElementById("save-record");
+    let photoReadId = 0;
     const allowedUploadTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"]);
     const uploadTypeByExtension = {
       jpg: "image/jpeg",
@@ -1240,9 +1307,13 @@
       return `${year}-${month}-${day}`;
     }
     function closeModal() {
+      photoReadId += 1;
+      saveRecordButton.disabled = false;
       modal.hidden = true;
       form.reset();
       fileName.textContent = "";
+      ocrStatus.textContent = "";
+      ocrStatus.className = "ocr-status";
     }
     document.getElementById("open-upload").addEventListener("click", () => {
       modal.hidden = false;
@@ -1252,10 +1323,152 @@
     document.getElementById("close-modal").addEventListener("click", closeModal);
     document.getElementById("cancel-modal").addEventListener("click", closeModal);
     modal.addEventListener("click", event => { if (event.target === modal) closeModal(); });
-    fileInput.addEventListener("change", () => {
+    function normalizeOcrToken(value) {
+      return value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
+    }
+    function findOcrLabel(words, labels) {
+      const tokens = words.map(word => normalizeOcrToken(word.text));
+      for (const label of labels) {
+        for (let start = 0; start <= tokens.length - label.length; start += 1) {
+          if (label.every((token, offset) => tokens[start + offset] === token)) {
+            return {
+              lastWord: words[start + label.length - 1],
+              height: Math.max(...words.slice(start, start + label.length).map(word => word.bbox.y1 - word.bbox.y0))
+            };
+          }
+        }
+      }
+      return null;
+    }
+    function readOcrField(words, labels, imageWidth, maxRight = 1) {
+      const label = findOcrLabel(words, labels);
+      if (!label) return "";
+      const labelCenter = (label.lastWord.bbox.y0 + label.lastWord.bbox.y1) / 2;
+      const maxYDistance = Math.max(5, label.height * 0.75);
+      return words
+        .filter(word => {
+          const center = (word.bbox.y0 + word.bbox.y1) / 2;
+          return word.bbox.x0 >= label.lastWord.bbox.x1 - 2
+            && word.bbox.x0 <= imageWidth * maxRight
+            && Math.abs(center - labelCenter) <= maxYDistance
+            && word.confidence >= 40
+            && normalizeOcrToken(word.text);
+        })
+        .sort((left, right) => left.bbox.x0 - right.bbox.x0)
+        .map(word => word.text)
+        .join(" ")
+        .trim();
+    }
+    function parseOcrDate(value) {
+      const match = value.match(/\b(\d{1,4})[./-](\d{1,2})[./-](\d{2,4})\b/);
+      if (!match) return "";
+      let year;
+      let month;
+      let day;
+      if (match[1].length === 4) {
+        year = Number(match[1]);
+        month = Number(match[2]);
+        day = Number(match[3]);
+      } else {
+        month = Number(match[1]);
+        day = Number(match[2]);
+        year = Number(match[3]);
+        if (year < 100) year += 2000;
+      }
+      const date = new Date(year, month - 1, day);
+      if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "";
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+    function applyOcrResults(data, imageWidth) {
+      const words = data.words || [];
+      const customer = readOcrField(words, [["customer"]], imageWidth, 0.62);
+      const item = readOcrField(words, [["item", "description"], ["description"]], imageWidth);
+      const printedSlipText = readOcrField(words, [["service", "slip"]], imageWidth);
+      const serial = readOcrField(words, [["serial", "no"], ["serial"]], imageWidth);
+      const dateText = readOcrField(words, [["date"]], imageWidth);
+      const printedSlipNo = printedSlipText.match(/\d{2,}/);
+      const serialNumber = serial.match(/[a-z0-9-]{3,}/i);
+      const parsedDate = parseOcrDate(dateText);
+      const fields = [
+        ["customer-input", customer],
+        ["item-input", item],
+        ["printed-slip-input", printedSlipNo ? printedSlipNo[0] : ""],
+        ["serial-input", serialNumber ? serialNumber[0] : ""]
+      ];
+      for (const [id, value] of fields) {
+        if (value) document.getElementById(id).value = value;
+      }
+      if (parsedDate) document.getElementById("date-input").value = parsedDate;
+      return fields.filter(([, value]) => value).length + Number(Boolean(parsedDate));
+    }
+    async function recognizePrintedSlipNumber(worker, file) {
+      const bitmap = await createImageBitmap(file);
+      try {
+        const crop = document.createElement("canvas");
+        const sourceX = bitmap.width * 0.76;
+        const sourceY = bitmap.height * 0.46;
+        const sourceWidth = bitmap.width * 0.17;
+        const sourceHeight = bitmap.height * 0.06;
+        crop.width = Math.round(sourceWidth * 6);
+        crop.height = Math.round(sourceHeight * 6);
+        const context = crop.getContext("2d", { willReadFrequently: true });
+        if (!context) throw new Error("Could not prepare the slip number for reading.");
+        context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, crop.width, crop.height);
+        const pixels = context.getImageData(0, 0, crop.width, crop.height);
+        for (let index = 0; index < pixels.data.length; index += 4) {
+          const gray = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114;
+          const contrast = Math.max(0, Math.min(255, (gray - 128) * 1.6 + 128));
+          pixels.data[index] = pixels.data[index + 1] = pixels.data[index + 2] = contrast;
+        }
+        context.putImageData(pixels, 0, 0);
+        const image = await new Promise((resolve, reject) => {
+          crop.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare the slip number for reading.")), "image/png");
+        });
+        await worker.setParameters({ tessedit_pageseg_mode: "8" });
+        const result = await worker.recognize(image);
+        const numberWord = result.data.words.find(word => /\d{4,}/.test(word.text));
+        const number = numberWord && numberWord.text.match(/\d{4,}/);
+        return number ? { value: number[0], confidence: numberWord.confidence } : null;
+      } finally {
+        bitmap.close();
+      }
+    }
+    async function prepareImageForOcr(file) {
+      const bitmap = await createImageBitmap(file);
+      try {
+        const scale = Math.min(3, 1800 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) throw new Error("Could not prepare the slip photo for reading.");
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        for (let index = 0; index < pixels.data.length; index += 4) {
+          const gray = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114;
+          const contrast = Math.max(0, Math.min(255, (gray - 128) * 1.6 + 128));
+          pixels.data[index] = pixels.data[index + 1] = pixels.data[index + 2] = contrast;
+        }
+        context.putImageData(pixels, 0, 0);
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare the slip photo for reading.")), "image/png");
+        });
+        return { image: blob, width: canvas.width };
+      } finally {
+        bitmap.close();
+      }
+    }
+    fileInput.addEventListener("change", async () => {
+      const currentReadId = ++photoReadId;
+      saveRecordButton.disabled = false;
+      ocrStatus.textContent = "";
+      ocrStatus.className = "ocr-status";
       const file = fileInput.files[0];
       if (!file) {
         fileName.textContent = "";
+        ocrStatus.textContent = "";
         return;
       }
       if (file.size > 10 * 1024 * 1024) {
@@ -1274,11 +1487,83 @@
       }
       fileName.style.color = "";
       fileName.textContent = file.name;
+      if (!getUploadContentType(file).startsWith("image/")) {
+        ocrStatus.textContent = "PDF attached. Enter the details below manually; photo reading is for images.";
+        return;
+      }
+      for (const id of ["customer-input", "item-input", "printed-slip-input", "serial-input", "date-input"]) {
+        document.getElementById(id).value = "";
+      }
+      if (!window.Tesseract) {
+        ocrStatus.classList.add("error");
+        ocrStatus.textContent = "Photo reading could not load. Check your connection, then reload or enter the details manually.";
+        return;
+      }
+      ocrStatus.textContent = "Preparing photo on this device…";
+      saveRecordButton.disabled = true;
+      let worker;
+      try {
+        const preparedImage = await prepareImageForOcr(file);
+        worker = await window.Tesseract.createWorker("eng", 1, {
+          logger: progress => {
+            if (progress.status === "recognizing text" && Number.isFinite(progress.progress)) {
+              ocrStatus.textContent = `Reading photo on this device… ${Math.round(progress.progress * 100)}%`;
+            }
+          }
+        });
+        await worker.setParameters({ tessedit_pageseg_mode: "4" });
+        const result = await worker.recognize(preparedImage.image);
+        if (currentReadId !== photoReadId) return;
+        let filledCount = applyOcrResults(result.data, preparedImage.width);
+        let confidence = result.data.confidence;
+        const slipNumberInput = document.getElementById("printed-slip-input");
+        let slipNumber = null;
+        let slipNumberError = false;
+        try {
+          slipNumber = await recognizePrintedSlipNumber(worker, file);
+        } catch (error) {
+          console.error("Printed service slip number reading failed", error);
+          slipNumberError = true;
+        }
+        if (currentReadId !== photoReadId) return;
+        if (slipNumber && (!slipNumberInput.value || slipNumber.confidence >= 60)) {
+          if (!slipNumberInput.value) filledCount += 1;
+          slipNumberInput.value = slipNumber.value;
+          confidence = Math.min(confidence, slipNumber.confidence);
+        }
+        const highConfidence = confidence >= 60;
+        ocrStatus.classList.add(filledCount && highConfidence && !slipNumberError ? "success" : "error");
+        ocrStatus.textContent = (filledCount && highConfidence
+          ? `Read ${filledCount} field${filledCount === 1 ? "" : "s"}. Check and correct the details below before saving.`
+          : filledCount
+            ? `Read ${filledCount} field${filledCount === 1 ? "" : "s"}, but confidence is low. Carefully check and correct the details before saving.`
+            : "Could not read any fields clearly. Enter the details below manually and check them before saving.")
+          + (slipNumberError ? " The printed slip number could not be read; enter it manually." : "");
+      } catch (error) {
+        if (currentReadId !== photoReadId) return;
+        console.error("Service slip photo reading failed", error);
+        ocrStatus.classList.add("error");
+        ocrStatus.textContent = "Could not read this photo. Try a clearer, well-lit photo or enter the details manually.";
+      } finally {
+        if (worker) {
+          try {
+            await worker.terminate();
+          } catch (error) {
+            console.error("Could not stop the service slip OCR worker", error);
+            if (currentReadId === photoReadId) {
+              ocrStatus.classList.add("error");
+              ocrStatus.textContent = "Photo reading finished, but the OCR worker could not close cleanly. Carefully verify the details before saving.";
+            }
+          }
+        }
+        if (currentReadId === photoReadId) saveRecordButton.disabled = false;
+      }
     });
     form.addEventListener("submit", async event => {
       event.preventDefault();
+      if (saveRecordButton.disabled) return;
       if (!selectedBranch || !form.reportValidity()) return;
-      const submit = document.getElementById("save-record");
+      const submit = saveRecordButton;
       submit.disabled = true;
       const data = new FormData(form);
       try {
@@ -1287,7 +1572,9 @@
           p_customer_name: data.get("customer").trim(),
           p_item_name: data.get("item").trim(),
           p_status: data.get("status"),
-          p_received_on: data.get("date")
+          p_received_on: data.get("date"),
+          p_printed_slip_no: data.get("printedSlipNo").trim() || null,
+          p_serial_number: data.get("serialNumber").trim() || null
         });
         if (error) throw error;
         const savedRecord = mapRecord(Array.isArray(row) ? row[0] : row);
