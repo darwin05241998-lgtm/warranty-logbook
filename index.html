@@ -587,8 +587,8 @@
         <input class="form-input" id="item-input" name="item" placeholder="e.g. MSI Laptop" required maxlength="120">
         <div class="form-grid">
           <div>
-            <label class="field-label" for="printed-slip-input">Printed slip number</label>
-            <input class="form-input" id="printed-slip-input" name="printedSlipNo" placeholder="e.g. 97850" maxlength="120">
+            <label class="field-label" for="printed-slip-input">Ticket number</label>
+            <input class="form-input" id="printed-slip-input" name="printedSlipNo" placeholder="Enter the ticket number" required maxlength="120">
           </div>
           <div>
             <label class="field-label" for="serial-input">Serial number</label>
@@ -668,6 +668,16 @@
     const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_CCAo6QbCd2ELEj7V1ZHakQ_rMsveHZs";
     const supabaseClient = window.supabase
       ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+      : null;
+    const deletionAuthClient = window.supabase
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+          detectSessionInUrl: false,
+          storageKey: "warranty-logbook-delete-auth"
+        }
+      })
       : null;
     let records = [];
 
@@ -949,7 +959,7 @@
       const receivedOn = new Date(`${row.received_on}T12:00:00`);
       return {
         dbId: row.id,
-        id: row.slip_no,
+        id: row.printed_slip_no || row.slip_no,
         printedSlipNo: row.printed_slip_no || null,
         customer: row.customer_name,
         item: row.item_name,
@@ -1117,7 +1127,7 @@
 
       list.innerHTML = filtered.map(record => `
         <article class="record-row">
-          <span class="ticket">${escapeHtml(record.id)}${record.printedSlipNo ? `<span class="ticket-date">Slip #${escapeHtml(record.printedSlipNo)}</span>` : ""}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
+          <span class="ticket">${escapeHtml(record.id)}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
           <span class="customer-name">${escapeHtml(record.customer)}</span>
           <span class="product-name">${escapeHtml(record.item)}${record.serialNumber ? `<span class="ticket-date">Serial: ${escapeHtml(record.serialNumber)}</span>` : ""}</span>
           <div class="status-actions">
@@ -1236,12 +1246,13 @@
       if (!record || !deleteForm.reportValidity()) return;
       const submit = document.getElementById("confirm-delete");
       const passwordInput = document.getElementById("delete-password");
-      let password = passwordInput.value;
+      const password = passwordInput.value;
       const errorMessage = document.getElementById("delete-error");
       submit.disabled = true;
       errorMessage.textContent = "";
       try {
-        const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+        if (!deletionAuthClient) throw new Error("Supabase is unavailable. Reload the page and try again.");
+        const { data: authData, error: authError } = await deletionAuthClient.auth.signInWithPassword({
           email: currentUser.email,
           password
         });
@@ -1249,7 +1260,7 @@
         if (authData.user.id !== currentUser.id) {
           throw new Error("Could not confirm the password for the signed-in account.");
         }
-        const { data: attachmentPath, error } = await supabaseClient.rpc("delete_warranty_record", {
+        const { data: attachmentPath, error } = await deletionAuthClient.rpc("delete_warranty_record", {
           p_record_id: record.dbId
         });
         if (error) throw error;
@@ -1272,9 +1283,16 @@
         passwordInput.value = "";
         passwordInput.focus();
       } finally {
-        password = "";
         passwordInput.value = "";
         submit.disabled = false;
+        if (deletionAuthClient) {
+          try {
+            const { error: signOutError } = await deletionAuthClient.auth.signOut({ scope: "local" });
+            if (signOutError) console.error("Could not clear the temporary deletion session", signOutError);
+          } catch (signOutError) {
+            console.error("Could not clear the temporary deletion session", signOutError);
+          }
+        }
       }
     });
 
@@ -1383,7 +1401,7 @@
       const words = data.words || [];
       const customer = readOcrField(words, [["customer"]], imageWidth, 0.62);
       const item = readOcrField(words, [["item", "description"], ["description"]], imageWidth);
-      const printedSlipText = readOcrField(words, [["service", "slip"]], imageWidth);
+      const printedSlipText = readOcrField(words, [["ticket", "no"], ["ticket", "number"], ["service", "slip"]], imageWidth);
       const serial = readOcrField(words, [["serial", "no"], ["serial"]], imageWidth);
       const dateText = readOcrField(words, [["date"]], imageWidth);
       const printedSlipNo = printedSlipText.match(/\d{2,}/);

@@ -65,6 +65,10 @@ alter table public.warranty_records
 create index if not exists warranty_records_branch_created_idx
   on public.warranty_records (branch_id, created_at desc);
 
+create index if not exists warranty_records_branch_ticket_idx
+  on public.warranty_records (branch_id, lower(trim(printed_slip_no)))
+  where printed_slip_no is not null;
+
 alter table public.warranty_branches enable row level security;
 alter table public.warranty_branch_members enable row level security;
 alter table public.warranty_records enable row level security;
@@ -242,7 +246,7 @@ begin
   if p_received_on is null then
     raise exception 'Date received is required.';
   end if;
-  if p_printed_slip_no is not null and char_length(trim(p_printed_slip_no)) not between 1 and 120 then
+  if p_printed_slip_no is null or char_length(trim(p_printed_slip_no)) not between 1 and 120 then
     raise exception 'Printed slip number must be between 1 and 120 characters.';
   end if;
   if p_serial_number is not null and char_length(trim(p_serial_number)) not between 1 and 120 then
@@ -256,6 +260,15 @@ begin
 
   if allocated_number is null then
     raise exception 'Branch was not found.';
+  end if;
+
+  if exists (
+    select 1
+    from public.warranty_records warranty_record
+    where warranty_record.branch_id = p_branch_id
+      and lower(trim(warranty_record.printed_slip_no)) = lower(trim(p_printed_slip_no))
+  ) then
+    raise exception 'That ticket number already exists in this branch.';
   end if;
 
   insert into public.warranty_records (
