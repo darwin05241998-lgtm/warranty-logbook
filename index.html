@@ -669,16 +669,6 @@
     const supabaseClient = window.supabase
       ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
       : null;
-    const deletionAuthClient = window.supabase
-      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-          detectSessionInUrl: false,
-          storageKey: "warranty-logbook-delete-auth"
-        }
-      })
-      : null;
     let records = [];
 
     const labels = { ongoing: "Ongoing", claimed: "Claimed", pending: "Purchased within 7 days", pickup: "For pickup" };
@@ -1251,16 +1241,16 @@
       submit.disabled = true;
       errorMessage.textContent = "";
       try {
-        if (!deletionAuthClient) throw new Error("Supabase is unavailable. Reload the page and try again.");
-        const { data: authData, error: authError } = await deletionAuthClient.auth.signInWithPassword({
+        if (!supabaseClient) throw new Error("Supabase is unavailable. Reload the page and try again.");
+        const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
           email: currentUser.email,
           password
         });
         if (authError) throw authError;
-        if (authData.user.id !== currentUser.id) {
+        if (authData.user?.id !== currentUser.id) {
           throw new Error("Could not confirm the password for the signed-in account.");
         }
-        const { data: attachmentPath, error } = await deletionAuthClient.rpc("delete_warranty_record", {
+        const { data: attachmentPath, error } = await supabaseClient.rpc("delete_warranty_record", {
           p_record_id: record.dbId
         });
         if (error) throw error;
@@ -1285,14 +1275,6 @@
       } finally {
         passwordInput.value = "";
         submit.disabled = false;
-        if (deletionAuthClient) {
-          try {
-            const { error: signOutError } = await deletionAuthClient.auth.signOut({ scope: "local" });
-            if (signOutError) console.error("Could not clear the temporary deletion session", signOutError);
-          } catch (signOutError) {
-            console.error("Could not clear the temporary deletion session", signOutError);
-          }
-        }
       }
     });
 

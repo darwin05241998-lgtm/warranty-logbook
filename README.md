@@ -21,5 +21,5 @@ The project URL and publishable browser key are configured in `index.html`. Publ
 
 The site uses the same account on phone and computer. Supabase row-level security limits each account to branches it belongs to.
 Enter a ticket number when adding each record. Ticket numbers must be unique within their branch; existing records keep their current displayed numbers. Changes to records appear on other open devices through Supabase Realtime.
-Deleting a record requires confirming the account password through Supabase Auth and a session authenticated within the last five minutes.
+Deleting a record asks you to confirm your account password through Supabase Auth. The app uses that refreshed sign-in session to authorize deletion; Supabase requires the session to have authenticated within the last five minutes.
 When adding a service slip, image text is recognized in the browser; photos are not sent to an OCR service. Check and correct the extracted customer, item, printed slip number, serial number, and date before saving. The image is uploaded to the branch's private attachment storage only when you save the record. OCR needs an internet connection to load its browser library and English language data.
