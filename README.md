@@ -20,6 +20,7 @@ The project URL and publishable browser key are configured in `index.html`. Publ
 4. Add the published URL to Supabase Authentication URL settings, then open that URL and create your account.
 
 The site uses the same account on phone and computer. Supabase row-level security limits each account to branches it belongs to.
+If you forget your password, choose **Forgot password?** on the sign-in screen and request a reset link. Open the link from the published site to set a new password. The published URL must be included in Supabase Authentication's allowed redirect URLs.
 Enter a ticket number when adding each record. Ticket numbers must be unique within their branch; existing records keep their current displayed numbers. Changes to records appear on other open devices through Supabase Realtime.
 Deleting a record asks for your account password once. Supabase verifies that the new sign-in session was created within the last five minutes before allowing deletion.
 When adding a service slip, image text is recognized in the browser; photos are not sent to an OCR service. Check and correct the extracted customer, item, printed slip number, and date, and enter the customer's contact number before saving. The image is uploaded to the branch's private attachment storage only when you save the record. OCR needs an internet connection to load its browser library and English language data.

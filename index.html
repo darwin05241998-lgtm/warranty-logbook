@@ -457,9 +457,24 @@
           <input class="form-input" id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="6" required>
           <div class="auth-error" id="auth-error" role="alert" aria-live="polite"></div>
           <button class="scan-button startup-button" id="auth-submit" type="submit">Log in</button>
+          <button class="startup-back" id="forgot-password" type="button">Forgot password?</button>
           <button class="startup-back" id="auth-resend" type="button" hidden>Resend confirmation email</button>
         </form>
         <p class="auth-footnote">Your logbook is private to your signed-in account and syncs online.</p>
+      </div>
+      <div id="password-reset-step" hidden>
+        <div class="startup-step">Account recovery</div>
+        <h1 id="password-reset-title">Set a new password</h1>
+        <p class="startup-copy" id="password-reset-copy">Choose a new password for your logbook account.</p>
+        <form id="password-reset-form">
+          <label class="field-label" for="new-password">New password</label>
+          <input class="form-input" id="new-password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+          <label class="field-label" for="confirm-password">Confirm new password</label>
+          <input class="form-input" id="confirm-password" name="passwordConfirmation" type="password" autocomplete="new-password" minlength="8" required>
+          <div class="auth-error" id="password-reset-error" role="alert" aria-live="polite"></div>
+          <button class="scan-button startup-button" id="password-reset-submit" type="submit">Update password</button>
+        </form>
+        <button class="startup-back" id="password-reset-back" type="button">← Back to sign in</button>
       </div>
       <div id="branch-step" hidden>
         <div class="startup-step">Signed in</div>
@@ -698,6 +713,9 @@
     let recordsRefreshTimer = null;
     let recordsReconnectTimer = null;
     let recordsReconnectAttempt = 0;
+    let passwordRecoveryInProgress =
+      new URLSearchParams(window.location.search).get("type") === "recovery"
+      || new URLSearchParams(window.location.hash.slice(1)).get("type") === "recovery";
 
     function renderBranches() {
       const list = document.getElementById("branch-list");
@@ -731,15 +749,29 @@
       authError.textContent = "";
       authError.classList.remove("success");
       authResend.hidden = true;
+      document.getElementById("forgot-password").hidden = registering;
     }
 
     function showAuth(message = "") {
       appShell.hidden = true;
       startupScreen.hidden = false;
       document.getElementById("auth-step").hidden = false;
+      document.getElementById("password-reset-step").hidden = true;
       document.getElementById("branch-step").hidden = true;
       document.getElementById("add-branch-step").hidden = true;
       authError.textContent = message;
+    }
+
+    function showPasswordReset(message = "") {
+      passwordRecoveryInProgress = true;
+      appShell.hidden = true;
+      startupScreen.hidden = false;
+      document.getElementById("auth-step").hidden = true;
+      document.getElementById("password-reset-step").hidden = false;
+      document.getElementById("branch-step").hidden = true;
+      document.getElementById("add-branch-step").hidden = true;
+      document.getElementById("password-reset-error").textContent = message;
+      document.getElementById("new-password").focus();
     }
 
     async function loadBranches() {
@@ -758,6 +790,7 @@
       }
       renderBranches();
       document.getElementById("auth-step").hidden = true;
+      document.getElementById("password-reset-step").hidden = true;
       document.getElementById("add-branch-step").hidden = true;
       document.getElementById("branch-step").hidden = false;
     }
@@ -799,6 +832,74 @@
 
     document.getElementById("login-tab").addEventListener("click", () => setAuthMode("login"));
     document.getElementById("register-tab").addEventListener("click", () => setAuthMode("register"));
+    document.getElementById("forgot-password").addEventListener("click", async () => {
+      if (!supabaseClient) {
+        authError.textContent = "Supabase is unavailable. Check your internet connection and reload.";
+        return;
+      }
+      const email = document.getElementById("auth-email").value.trim();
+      if (!email || !document.getElementById("auth-email").reportValidity()) {
+        authError.textContent = "Enter your account email address first.";
+        document.getElementById("auth-email").focus();
+        return;
+      }
+      const button = document.getElementById("forgot-password");
+      button.disabled = true;
+      authError.textContent = "";
+      authError.classList.remove("success");
+      try {
+        const redirectTo = `${window.location.origin}${window.location.pathname}`;
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
+        if (error) throw error;
+        document.getElementById("auth-password").value = "";
+        authError.classList.add("success");
+        authError.textContent = "If an account exists for that email, a password reset link has been sent. Check your inbox and spam folder.";
+      } catch (error) {
+        authError.textContent = `Could not request a password reset: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+    document.getElementById("password-reset-back").addEventListener("click", async () => {
+      if (supabaseClient) {
+        const { error } = await supabaseClient.auth.signOut();
+        if (error) {
+          showPasswordReset(`Could not return to sign in: ${error.message}`);
+          return;
+        }
+      }
+      passwordRecoveryInProgress = false;
+      document.getElementById("password-reset-form").reset();
+      showAuth();
+    });
+    document.getElementById("password-reset-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      if (!supabaseClient || !form.reportValidity()) return;
+      const password = document.getElementById("new-password").value;
+      const confirmation = document.getElementById("confirm-password").value;
+      const errorElement = document.getElementById("password-reset-error");
+      if (password !== confirmation) {
+        errorElement.textContent = "The passwords do not match.";
+        document.getElementById("confirm-password").focus();
+        return;
+      }
+      const submit = document.getElementById("password-reset-submit");
+      submit.disabled = true;
+      errorElement.textContent = "";
+      try {
+        const { data, error } = await supabaseClient.auth.updateUser({ password });
+        if (error) throw error;
+        currentUser = data.user;
+        passwordRecoveryInProgress = false;
+        form.reset();
+        await showBranchChooser();
+      } catch (error) {
+        showPasswordReset(`Could not update your password: ${error.message}`);
+      } finally {
+        submit.disabled = false;
+      }
+    });
     authForm.addEventListener("submit", async event => {
       event.preventDefault();
       if (pendingSignupLogin) {
@@ -1084,6 +1185,9 @@
     document.addEventListener("visibilitychange", refreshRecordsWhenActive);
     window.addEventListener("online", refreshRecordsWhenActive);
 
+    supabaseClient?.auth.onAuthStateChange(event => {
+      if (event === "PASSWORD_RECOVERY") showPasswordReset();
+    });
     supabaseClient?.auth.getSession().then(({ data, error }) => {
       if (error) {
         showAuth(`Could not restore your session: ${error.message}`);
@@ -1091,7 +1195,8 @@
       }
       if (data.session) {
         currentUser = data.session.user;
-        showBranchChooser();
+        if (passwordRecoveryInProgress) showPasswordReset();
+        else showBranchChooser();
       }
     }).catch(error => showAuth(`Could not connect to Supabase: ${error.message}`));
     if (!supabaseClient) {
