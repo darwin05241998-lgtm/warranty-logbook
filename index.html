@@ -97,7 +97,7 @@
     .scan-button:hover { background: var(--accent-dark); transform: translateY(-1px); }
     .scan-button svg { width: 17px; height: 17px; }
 
-    .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-top: 32px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 32px; }
     .summary-card {
       min-height: 118px; padding: 17px 18px;
       background: var(--surface); border: 1px solid var(--line); border-radius: 13px;
@@ -107,7 +107,6 @@
     }
     .summary-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
     .summary-card[aria-pressed="true"] { border-color: color-mix(in srgb, var(--status) 58%, white); box-shadow: 0 0 0 2px color-mix(in srgb, var(--status) 12%, transparent); }
-    .summary-card[data-filter="all"] { --status: var(--accent); }
     .summary-card[data-filter="ongoing"] { --status: #e3a323; }
     .summary-card[data-filter="claimed"] { --status: #2eab78; }
     .summary-card[data-filter="pending"] { --status: #e25c66; }
@@ -169,6 +168,7 @@
     }
     .status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
     .status-ongoing { color: #a86c00; background: #fff5db; }
+    .status-overdue { color: #bd303d; background: #fff0f0; }
     .status-claimed { color: #188354; background: #e7f7ef; }
     .status-pending { color: #c6414e; background: #fff0f0; }
     .status-pickup { color: #2765b5; background: #eaf2ff; }
@@ -326,6 +326,7 @@
     .record-row:hover { background: rgba(69, 99, 148, .12); }
     .product-name { color: #c0cde0; }
     .status-ongoing { color: #f0c36d; background: #382d19; }
+    .status-overdue { color: #ff9aa3; background: #402126; }
     .status-claimed { color: #72d6a7; background: #19372d; }
     .status-pending { color: #f18c96; background: #3a2329; }
     .status-pickup { color: #a6cbff; background: #1a2d49; }
@@ -520,21 +521,17 @@
         </div>
 
         <div class="summary-grid" id="summary-grid" aria-label="Filter service records">
-          <button class="summary-card" data-filter="all" aria-pressed="true" type="button">
-            <span class="summary-top"><span class="summary-label">All service slips</span><span class="summary-dot"></span></span>
-            <span><span class="summary-number" id="count-all">25</span><span class="summary-note">Total records</span></span>
+          <button class="summary-card" data-filter="pending" aria-pressed="false" type="button">
+            <span class="summary-top"><span class="summary-label">Priority</span><span class="summary-dot"></span></span>
+            <span><span class="summary-number" id="count-pending">3</span><span class="summary-note">Priority warranty claims</span></span>
           </button>
-          <button class="summary-card" data-filter="ongoing" aria-pressed="false" type="button">
+          <button class="summary-card" data-filter="ongoing" aria-pressed="true" type="button">
             <span class="summary-top"><span class="summary-label">Ongoing</span><span class="summary-dot"></span></span>
             <span><span class="summary-number" id="count-ongoing">12</span><span class="summary-note">Currently being serviced</span></span>
           </button>
           <button class="summary-card" data-filter="claimed" aria-pressed="false" type="button">
             <span class="summary-top"><span class="summary-label">Claimed</span><span class="summary-dot"></span></span>
             <span><span class="summary-number" id="count-claimed">8</span><span class="summary-note">Successfully completed</span></span>
-          </button>
-          <button class="summary-card" data-filter="pending" aria-pressed="false" type="button">
-            <span class="summary-top">            <span class="summary-label">Purchased within 7 days</span><span class="summary-dot"></span></span>
-            <span><span class="summary-number" id="count-pending">3</span><span class="summary-note">Priority warranty claim</span></span>
           </button>
           <button class="summary-card" data-filter="pickup" aria-pressed="false" type="button">
             <span class="summary-top"><span class="summary-label">For pickup</span><span class="summary-dot"></span></span>
@@ -672,8 +669,16 @@
     let records = [];
 
     const labels = { ongoing: "Ongoing", claimed: "Claimed", pending: "Purchased within 7 days", pickup: "For pickup" };
-    let activeFilter = "all";
+    let activeFilter = "ongoing";
     let editingRecordId = null;
+
+    function isOverdue(record, today = new Date()) {
+      if (record.status !== "ongoing") return false;
+      const [year, month, day] = record.receivedOn.split("-").map(Number);
+      const receivedAt = Date.UTC(year, month - 1, day);
+      const todayAt = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+      return Number.isFinite(receivedAt) && Math.floor((todayAt - receivedAt) / 86400000) >= 14;
+    }
 
     document.getElementById("today").textContent = new Intl.DateTimeFormat("en", {
       weekday: "short", month: "short", day: "numeric", year: "numeric"
@@ -1096,8 +1101,9 @@
     function renderRecords() {
       const query = document.getElementById("search").value.trim().toLocaleLowerCase();
       const filtered = records.filter(record => {
-        const matchesFilter = activeFilter === "all" || record.status === activeFilter;
-        const matchesSearch = `${record.id} ${record.printedSlipNo || ""} ${record.customer} ${record.contactNumber || ""} ${record.item} ${labels[record.status]}`
+        const matchesFilter = record.status === activeFilter;
+        const statusLabel = isOverdue(record) ? "Overdue" : labels[record.status];
+        const matchesSearch = `${record.id} ${record.printedSlipNo || ""} ${record.customer} ${record.contactNumber || ""} ${record.item} ${statusLabel}`
           .toLocaleLowerCase().includes(query);
         return matchesFilter && matchesSearch;
       });
@@ -1115,17 +1121,21 @@
         return;
       }
 
-      list.innerHTML = filtered.map(record => `
-        <article class="record-row">
-          <span class="ticket">${escapeHtml(record.id)}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
-          <span class="customer-name">${escapeHtml(record.customer)}${record.contactNumber ? `<span class="ticket-date">${escapeHtml(record.contactNumber)}</span>` : ""}</span>
-          <span class="product-name">${escapeHtml(record.item)}</span>
-          <div class="status-actions">
-            <span class="status-pill status-${record.status}">${labels[record.status]}</span>
-            <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.dbId)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
-            <button class="delete-record-button" type="button" data-delete-id="${escapeHtml(record.dbId)}" aria-label="Delete ${escapeHtml(record.id)}">Delete</button>
-          </div>
-        </article>`).join("");
+      list.innerHTML = filtered.map(record => {
+        const status = isOverdue(record) ? "overdue" : record.status;
+        const statusLabel = status === "overdue" ? "Overdue" : labels[status];
+        return `
+          <article class="record-row">
+            <span class="ticket">${escapeHtml(record.id)}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
+            <span class="customer-name">${escapeHtml(record.customer)}${record.contactNumber ? `<span class="ticket-date">${escapeHtml(record.contactNumber)}</span>` : ""}</span>
+            <span class="product-name">${escapeHtml(record.item)}</span>
+            <div class="status-actions">
+              <span class="status-pill status-${status}">${statusLabel}</span>
+              <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.dbId)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
+              <button class="delete-record-button" type="button" data-delete-id="${escapeHtml(record.dbId)}" aria-label="Delete ${escapeHtml(record.id)}">Delete</button>
+            </div>
+          </article>`;
+      }).join("");
       document.getElementById("panel-footer").textContent = `Showing ${filtered.length} of ${records.length} service slips`;
     }
 
@@ -1136,7 +1146,6 @@
     }
 
     function renderCounts() {
-      document.getElementById("count-all").textContent = records.length;
       for (const status of Object.keys(labels)) {
         document.getElementById(`count-${status}`).textContent =
           records.filter(record => record.status === status).length;
@@ -1632,9 +1641,9 @@
           }
         }
         renderCounts();
-        activeFilter = "all";
+        activeFilter = "ongoing";
         document.querySelectorAll(".summary-card").forEach(button => {
-          button.setAttribute("aria-pressed", String(button.dataset.filter === "all"));
+          button.setAttribute("aria-pressed", String(button.dataset.filter === "ongoing"));
         });
         document.getElementById("search").value = "";
         renderRecords();
@@ -1649,6 +1658,15 @@
 
     renderCounts();
     renderRecords();
+    function scheduleOverdueRefresh() {
+      const nextMidnight = new Date();
+      nextMidnight.setHours(24, 0, 0, 0);
+      window.setTimeout(() => {
+        renderRecords();
+        scheduleOverdueRefresh();
+      }, nextMidnight.getTime() - Date.now());
+    }
+    scheduleOverdueRefresh();
   </script>
 </body>
 </html>
