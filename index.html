@@ -1354,13 +1354,51 @@
     function normalizeOcrToken(value) {
       return value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
     }
+    const ocrFieldLabels = {
+      customer: [["customer", "name"], ["customer"]],
+      item: [["item", "description"], ["product", "description"], ["description"], ["item"], ["product"]],
+      ticket: [["ticket", "number"], ["ticket", "no"], ["service", "slip"], ["slip", "number"], ["slip", "no"]],
+      date: [["date", "received"], ["received", "date"], ["date"]]
+    };
+    const allOcrLabelGroups = Object.values(ocrFieldLabels);
+
+    function groupOcrWordsIntoLines(words) {
+      const sorted = words
+        .filter(word => word.text && word.bbox && Number.isFinite(word.bbox.y0) && Number.isFinite(word.bbox.y1))
+        .slice()
+        .sort((left, right) =>
+          (left.bbox.y0 + left.bbox.y1) - (right.bbox.y0 + right.bbox.y1)
+          || left.bbox.x0 - right.bbox.x0);
+      const lines = [];
+      for (const word of sorted) {
+        const height = word.bbox.y1 - word.bbox.y0;
+        const center = (word.bbox.y0 + word.bbox.y1) / 2;
+        let line = lines.find(candidate =>
+          Math.abs(candidate.center - center) <= Math.max(5, Math.min(candidate.height, height) * 0.65));
+        if (!line) {
+          line = { words: [], center, height };
+          lines.push(line);
+        }
+        line.words.push(word);
+        line.center = line.words.reduce((sum, entry) =>
+          sum + (entry.bbox.y0 + entry.bbox.y1) / 2, 0) / line.words.length;
+        line.height = Math.max(line.height, height);
+      }
+      return lines
+        .map(line => ({ ...line, words: line.words.sort((left, right) => left.bbox.x0 - right.bbox.x0) }))
+        .sort((left, right) => left.center - right.center);
+    }
+
     function findOcrLabel(words, labels) {
       const tokens = words.map(word => normalizeOcrToken(word.text));
       for (const label of labels) {
         for (let start = 0; start <= tokens.length - label.length; start += 1) {
           if (label.every((token, offset) => tokens[start + offset] === token)) {
             return {
+              firstWord: words[start],
               lastWord: words[start + label.length - 1],
+              startWordIndex: start,
+              endWordIndex: start + label.length - 1,
               height: Math.max(...words.slice(start, start + label.length).map(word => word.bbox.y1 - word.bbox.y0))
             };
           }
@@ -1368,24 +1406,42 @@
       }
       return null;
     }
+
     function readOcrField(words, labels, imageWidth, maxRight = 1) {
-      const label = findOcrLabel(words, labels);
-      if (!label) return "";
-      const labelCenter = (label.lastWord.bbox.y0 + label.lastWord.bbox.y1) / 2;
-      const maxYDistance = Math.max(5, label.height * 0.75);
-      return words
-        .filter(word => {
-          const center = (word.bbox.y0 + word.bbox.y1) / 2;
-          return word.bbox.x0 >= label.lastWord.bbox.x1 - 2
+      const lines = groupOcrWordsIntoLines(words);
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex];
+        const label = findOcrLabel(line.words, labels);
+        if (!label) continue;
+        const otherLabels = allOcrLabelGroups
+          .map(fieldLabels => findOcrLabel(line.words, fieldLabels))
+          .filter(match => match && match.startWordIndex > label.endWordIndex)
+          .sort((left, right) => left.firstWord.bbox.x0 - right.firstWord.bbox.x0);
+        const rightBoundary = otherLabels.length ? otherLabels[0].firstWord.bbox.x0 : imageWidth * maxRight;
+        const sameLineValue = line.words
+          .filter((word, index) => index > label.endWordIndex
+            && word.bbox.x0 >= label.lastWord.bbox.x1 - 2
+            && word.bbox.x0 < rightBoundary
             && word.bbox.x0 <= imageWidth * maxRight
-            && Math.abs(center - labelCenter) <= maxYDistance
             && word.confidence >= 40
-            && normalizeOcrToken(word.text);
-        })
-        .sort((left, right) => left.bbox.x0 - right.bbox.x0)
-        .map(word => word.text)
-        .join(" ")
-        .trim();
+            && normalizeOcrToken(word.text))
+          .map(word => word.text)
+          .join(" ")
+          .trim();
+        if (sameLineValue) return sameLineValue;
+
+        const nextLine = lines[lineIndex + 1];
+        if (!nextLine || nextLine.center - line.center > Math.max(36, label.height * 3)) return "";
+        if (allOcrLabelGroups.some(fieldLabels => findOcrLabel(nextLine.words, fieldLabels))) return "";
+        return nextLine.words
+          .filter(word => word.bbox.x0 <= imageWidth * maxRight
+            && word.confidence >= 40
+            && normalizeOcrToken(word.text))
+          .map(word => word.text)
+          .join(" ")
+          .trim();
+      }
+      return "";
     }
     function parseOcrDate(value) {
       const match = value.match(/\b(\d{1,4})[./-](\d{1,2})[./-](\d{2,4})\b/);
@@ -1409,10 +1465,10 @@
     }
     function applyOcrResults(data, imageWidth) {
       const words = data.words || [];
-      const customer = readOcrField(words, [["customer"]], imageWidth, 0.62);
-      const item = readOcrField(words, [["item", "description"], ["description"]], imageWidth);
-      const printedSlipText = readOcrField(words, [["ticket", "no"], ["ticket", "number"], ["service", "slip"]], imageWidth);
-      const dateText = readOcrField(words, [["date"]], imageWidth);
+      const customer = readOcrField(words, ocrFieldLabels.customer, imageWidth);
+      const item = readOcrField(words, ocrFieldLabels.item, imageWidth);
+      const printedSlipText = readOcrField(words, ocrFieldLabels.ticket, imageWidth);
+      const dateText = readOcrField(words, ocrFieldLabels.date, imageWidth);
       const printedSlipNo = printedSlipText.match(/\d{2,}/);
       const parsedDate = parseOcrDate(dateText);
       const fields = [
@@ -1544,15 +1600,17 @@
         const slipNumberInput = document.getElementById("printed-slip-input");
         let slipNumber = null;
         let slipNumberError = false;
-        try {
-          slipNumber = await recognizePrintedSlipNumber(worker, file);
-        } catch (error) {
-          console.error("Printed service slip number reading failed", error);
-          slipNumberError = true;
+        if (!slipNumberInput.value) {
+          try {
+            slipNumber = await recognizePrintedSlipNumber(worker, file);
+          } catch (error) {
+            console.error("Printed service slip number reading failed", error);
+            slipNumberError = true;
+          }
         }
         if (currentReadId !== photoReadId) return;
-        if (slipNumber && (!slipNumberInput.value || slipNumber.confidence >= 60)) {
-          if (!slipNumberInput.value) filledCount += 1;
+        if (slipNumber && !slipNumberInput.value) {
+          filledCount += 1;
           slipNumberInput.value = slipNumber.value;
           confidence = Math.min(confidence, slipNumber.confidence);
         }
