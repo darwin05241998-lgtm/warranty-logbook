@@ -1362,6 +1362,10 @@
     };
     const allOcrLabelGroups = Object.values(ocrFieldLabels);
 
+    function findOcrWord(words, token, matches = () => true) {
+      return words.find(word => normalizeOcrToken(word.text) === token && matches(word));
+    }
+
     function groupOcrWordsIntoLines(words) {
       const sorted = words
         .filter(word => word.text && word.bbox && Number.isFinite(word.bbox.y0) && Number.isFinite(word.bbox.y1))
@@ -1413,6 +1417,11 @@
         const line = lines[lineIndex];
         const label = findOcrLabel(line.words, labels);
         if (!label) continue;
+        if (labels === ocrFieldLabels.item
+          && label.startWordIndex === label.endWordIndex
+          && ["to", "defective"].includes(normalizeOcrToken(line.words[label.endWordIndex + 1]?.text || ""))) {
+          continue;
+        }
         const otherLabels = allOcrLabelGroups
           .map(fieldLabels => findOcrLabel(line.words, fieldLabels))
           .filter(match => match && match.startWordIndex > label.endWordIndex)
@@ -1463,6 +1472,113 @@
       if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "";
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     }
+
+    async function recognizeOcrCrop(worker, bitmap, bounds, pageSegMode, characterWhitelist = "", scale = 4, threshold = null) {
+      const left = Math.max(0, Math.round(bounds.x));
+      const top = Math.max(0, Math.round(bounds.y));
+      const right = Math.min(bitmap.width, Math.round(bounds.x + bounds.width));
+      const bottom = Math.min(bitmap.height, Math.round(bounds.y + bounds.height));
+      if (right <= left || bottom <= top) return "";
+      const crop = document.createElement("canvas");
+      crop.width = (right - left) * scale;
+      crop.height = (bottom - top) * scale;
+      const context = crop.getContext("2d");
+      if (!context) throw new Error("Could not prepare a service slip field for reading.");
+      context.drawImage(bitmap, left, top, right - left, bottom - top, 0, 0, crop.width, crop.height);
+      if (threshold !== null) {
+        const pixels = context.getImageData(0, 0, crop.width, crop.height);
+        for (let index = 0; index < pixels.data.length; index += 4) {
+          const gray = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114;
+          const value = gray < threshold ? 0 : 255;
+          pixels.data[index] = pixels.data[index + 1] = pixels.data[index + 2] = value;
+        }
+        context.putImageData(pixels, 0, 0);
+      }
+      const image = await new Promise((resolve, reject) => {
+        crop.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare a service slip field for reading.")), "image/png");
+      });
+      const parameters = { tessedit_pageseg_mode: pageSegMode };
+      if (characterWhitelist) parameters.tessedit_char_whitelist = characterWhitelist;
+      await worker.setParameters(parameters);
+      return (await worker.recognize(image)).data.text.trim();
+    }
+
+    async function recognizeDataBlitzCustomer(worker, file) {
+      const bitmap = await createImageBitmap(file);
+      try {
+        const text = await recognizeOcrCrop(worker, bitmap, {
+          x: bitmap.width * 0.145,
+          y: bitmap.height * 0.58,
+          width: bitmap.width * 0.48,
+          height: bitmap.height * 0.025
+        }, "6", "", 8, 140);
+        return text.split(/\r?\n/).map(line => line.replace(/^[^a-z]+/i, "").trim())
+          .find(line => /[a-z]{2}/i.test(line)) || "";
+      } finally {
+        bitmap.close();
+      }
+    }
+
+    async function recognizeDataBlitzDate(worker, file) {
+      const bitmap = await createImageBitmap(file);
+      try {
+        const text = await recognizeOcrCrop(worker, bitmap, {
+          x: bitmap.width * 0.72,
+          y: bitmap.height * 0.535,
+          width: bitmap.width * 0.20,
+          height: bitmap.height * 0.045
+        }, "6", "0123456789/.-", 6);
+        return parseOcrDate(text);
+      } finally {
+        bitmap.close();
+      }
+    }
+
+    async function recognizeLabeledFields(worker, image, words, imageWidth, imageHeight) {
+      const bitmap = await createImageBitmap(image);
+      try {
+        const fields = {};
+        const customerLabel = findOcrWord(words, "customer", word =>
+          word.confidence >= 50 && word.bbox.x0 < imageWidth * 0.35 && word.bbox.y0 > imageHeight * 0.4);
+        if (customerLabel) {
+          const height = customerLabel.bbox.y1 - customerLabel.bbox.y0;
+          const center = (customerLabel.bbox.y0 + customerLabel.bbox.y1) / 2;
+          const text = await recognizeOcrCrop(worker, bitmap, {
+            x: customerLabel.bbox.x1,
+            y: center - height * 1.35,
+            width: imageWidth * 0.62 - customerLabel.bbox.x1,
+            height: height * 1.65
+          }, "6");
+          const customer = text.split(/\r?\n/).map(line => line.replace(/^[^a-z0-9]+/i, "").trim())
+            .find(line => /[a-z]{2}/i.test(line));
+          if (customer) fields.customer = customer;
+        }
+
+        const ticketLabel = findOcrWord(words, "ticket", word =>
+          word.confidence >= 50 && word.bbox.x0 < imageWidth * 0.35 && word.bbox.y0 > imageHeight * 0.4);
+        if (ticketLabel) {
+          const ticketCenter = (ticketLabel.bbox.y0 + ticketLabel.bbox.y1) / 2;
+          const dateLabel = findOcrWord(words, "date", word =>
+            word.bbox.x0 > imageWidth * 0.5
+            && Math.abs((word.bbox.y0 + word.bbox.y1) / 2 - ticketCenter) < imageHeight * 0.06);
+          if (dateLabel) {
+            const height = dateLabel.bbox.y1 - dateLabel.bbox.y0;
+            const text = await recognizeOcrCrop(worker, bitmap, {
+              x: dateLabel.bbox.x0,
+              y: dateLabel.bbox.y0 - height * 1.6,
+              width: imageWidth * 0.99 - dateLabel.bbox.x0,
+              height: height * 4.5
+            }, "11");
+            const date = parseOcrDate(text);
+            if (date) fields.date = date;
+          }
+        }
+        return fields;
+      } finally {
+        bitmap.close();
+      }
+    }
+
     function applyOcrResults(data, imageWidth) {
       const words = data.words || [];
       const customer = readOcrField(words, ocrFieldLabels.customer, imageWidth);
@@ -1486,29 +1602,22 @@
       const bitmap = await createImageBitmap(file);
       try {
         const crop = document.createElement("canvas");
-        const sourceX = bitmap.width * 0.76;
-        const sourceY = bitmap.height * 0.46;
-        const sourceWidth = bitmap.width * 0.17;
-        const sourceHeight = bitmap.height * 0.06;
+        const sourceX = bitmap.width * 0.72;
+        const sourceY = bitmap.height * 0.47;
+        const sourceWidth = bitmap.width * 0.26;
+        const sourceHeight = bitmap.height * 0.09;
         crop.width = Math.round(sourceWidth * 6);
         crop.height = Math.round(sourceHeight * 6);
         const context = crop.getContext("2d", { willReadFrequently: true });
         if (!context) throw new Error("Could not prepare the slip number for reading.");
         context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, crop.width, crop.height);
-        const pixels = context.getImageData(0, 0, crop.width, crop.height);
-        for (let index = 0; index < pixels.data.length; index += 4) {
-          const gray = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114;
-          const contrast = Math.max(0, Math.min(255, (gray - 128) * 1.6 + 128));
-          pixels.data[index] = pixels.data[index + 1] = pixels.data[index + 2] = contrast;
-        }
-        context.putImageData(pixels, 0, 0);
         const image = await new Promise((resolve, reject) => {
           crop.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare the slip number for reading.")), "image/png");
         });
-        await worker.setParameters({ tessedit_pageseg_mode: "8" });
+        await worker.setParameters({ tessedit_pageseg_mode: "11" });
         const result = await worker.recognize(image);
-        const numberWord = result.data.words.find(word => /\d{4,}/.test(word.text));
-        const number = numberWord && numberWord.text.match(/\d{4,}/);
+        const numberWord = result.data.words.find(word => /\b\d{4,8}\b/.test(word.text));
+        const number = numberWord && numberWord.text.match(/\d{4,8}/);
         return number ? { value: number[0], confidence: numberWord.confidence } : null;
       } finally {
         bitmap.close();
@@ -1536,7 +1645,7 @@
         const blob = await new Promise((resolve, reject) => {
           canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare the slip photo for reading.")), "image/png");
         });
-        return { image: blob, width: canvas.width };
+        return { image: blob, width: canvas.width, height: canvas.height };
       } finally {
         bitmap.close();
       }
@@ -1596,6 +1705,22 @@
         const result = await worker.recognize(preparedImage.image);
         if (currentReadId !== photoReadId) return;
         let filledCount = applyOcrResults(result.data, preparedImage.width);
+        const hasDataBlitzSlip = result.data.words.some(word =>
+          normalizeOcrToken(word.text) === "slip"
+          && word.bbox.x0 > preparedImage.width * 0.5
+          && word.bbox.y0 > preparedImage.height * 0.4);
+        const labeledFields = hasDataBlitzSlip
+          ? { customer: await recognizeDataBlitzCustomer(worker, file), date: "" }
+          : await recognizeLabeledFields(
+            worker, preparedImage.image, result.data.words, preparedImage.width, preparedImage.height
+          );
+        const customer = labeledFields.customer;
+        if (currentReadId !== photoReadId) return;
+        if (customer) {
+          const input = document.getElementById("customer-input");
+          if (!input.value) filledCount += 1;
+          input.value = customer;
+        }
         let confidence = result.data.confidence;
         const slipNumberInput = document.getElementById("printed-slip-input");
         let slipNumber = null;
@@ -1614,14 +1739,27 @@
           slipNumberInput.value = slipNumber.value;
           confidence = Math.min(confidence, slipNumber.confidence);
         }
+        const date = hasDataBlitzSlip
+          ? await recognizeDataBlitzDate(worker, file)
+          : labeledFields.date;
+        if (date) {
+          if (currentReadId !== photoReadId) return;
+          const dateInput = document.getElementById("date-input");
+          if (!dateInput.value) filledCount += 1;
+          dateInput.value = date;
+        }
         const highConfidence = confidence >= 60;
+        const manualFields = [];
+        if (!document.getElementById("item-input").value) manualFields.push("item description");
+        if (!document.getElementById("contact-input").value) manualFields.push("contact number");
         ocrStatus.classList.add(filledCount && highConfidence && !slipNumberError ? "success" : "error");
         ocrStatus.textContent = (filledCount && highConfidence
           ? `Read ${filledCount} field${filledCount === 1 ? "" : "s"}. Check and correct the details below before saving.`
           : filledCount
             ? `Read ${filledCount} field${filledCount === 1 ? "" : "s"}, but confidence is low. Carefully check and correct the details before saving.`
             : "Could not read any fields clearly. Enter the details below manually and check them before saving.")
-          + (slipNumberError ? " The printed slip number could not be read; enter it manually." : "");
+          + (slipNumberError ? " The printed slip number could not be read; enter it manually." : "")
+          + (manualFields.length ? ` Enter the ${manualFields.join(" and ")} manually.` : "");
       } catch (error) {
         if (currentReadId !== photoReadId) return;
         console.error("Service slip photo reading failed", error);
