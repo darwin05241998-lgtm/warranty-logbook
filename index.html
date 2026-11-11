@@ -1649,11 +1649,11 @@
           width: bitmap.width * 0.32,
           height: bitmap.height * 0.025
         };
-        const plainText = await recognizeOcrCrop(worker, bitmap, bounds, "7", "", 12, 140);
-        const numericText = await recognizeOcrCrop(worker, bitmap, bounds, "7", "0123456789", 12, 140);
-        const plainNumber = plainText.replace(/\D/g, "");
-        const numericNumber = numericText.replace(/\D/g, "");
-        return plainNumber.length === 10 && plainNumber === numericNumber ? plainNumber : "";
+        const lineText = await recognizeOcrCrop(worker, bitmap, bounds, "7", "0123456789", 12, 140);
+        const wordText = await recognizeOcrCrop(worker, bitmap, bounds, "10", "0123456789", 12, 140);
+        const lineNumber = lineText.replace(/\D/g, "");
+        const wordNumber = wordText.replace(/\D/g, "");
+        return lineNumber.length === 10 && lineNumber === wordNumber ? lineNumber : "";
       } finally {
         bitmap.close();
       }
