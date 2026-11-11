@@ -1463,7 +1463,8 @@
       customer: [["customer", "name"], ["customer"]],
       item: [["item", "description"], ["product", "description"], ["description"], ["item"], ["product"]],
       ticket: [["ticket", "number"], ["ticket", "no"], ["service", "slip"], ["slip", "number"], ["slip", "no"]],
-      date: [["date", "received"], ["received", "date"], ["date"]]
+      date: [["date", "received"], ["received", "date"], ["date"]],
+      contact: [["telephone", "number"], ["telephone"], ["phone", "number"], ["phone"], ["contact", "number"]]
     };
     const allOcrLabelGroups = Object.values(ocrFieldLabels);
 
@@ -1639,6 +1640,25 @@
       }
     }
 
+    async function recognizeDataBlitzContact(worker, file) {
+      const bitmap = await createImageBitmap(file);
+      try {
+        const bounds = {
+          x: bitmap.width * 0.24,
+          y: bitmap.height * 0.602,
+          width: bitmap.width * 0.32,
+          height: bitmap.height * 0.025
+        };
+        const plainText = await recognizeOcrCrop(worker, bitmap, bounds, "7", "", 12, 140);
+        const numericText = await recognizeOcrCrop(worker, bitmap, bounds, "7", "0123456789", 12, 140);
+        const plainNumber = plainText.replace(/\D/g, "");
+        const numericNumber = numericText.replace(/\D/g, "");
+        return plainNumber.length === 10 && plainNumber === numericNumber ? plainNumber : "";
+      } finally {
+        bitmap.close();
+      }
+    }
+
     async function recognizeLabeledFields(worker, image, words, imageWidth, imageHeight) {
       const bitmap = await createImageBitmap(image);
       try {
@@ -1695,7 +1715,8 @@
       const fields = [
         ["customer-input", customer],
         ["item-input", item],
-        ["printed-slip-input", printedSlipNo ? printedSlipNo[0] : ""]
+        ["printed-slip-input", printedSlipNo ? printedSlipNo[0] : ""],
+        ["contact-input", readOcrField(words, ocrFieldLabels.contact, imageWidth)]
       ];
       for (const [id, value] of fields) {
         if (value) document.getElementById(id).value = value;
@@ -1825,6 +1846,19 @@
           const input = document.getElementById("customer-input");
           if (!input.value) filledCount += 1;
           input.value = customer;
+        }
+        if (hasDataBlitzSlip) {
+          const contactInput = document.getElementById("contact-input");
+          if (contactInput.value) {
+            contactInput.value = "";
+            filledCount -= 1;
+          }
+          const contact = await recognizeDataBlitzContact(worker, file);
+          if (currentReadId !== photoReadId) return;
+          if (contact) {
+            filledCount += 1;
+            contactInput.value = contact;
+          }
         }
         let confidence = result.data.confidence;
         const slipNumberInput = document.getElementById("printed-slip-input");
