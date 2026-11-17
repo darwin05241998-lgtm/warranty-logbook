@@ -1,4 +1,4 @@
-create table if not exists public.warranty_branches (
+﻿create table if not exists public.warranty_branches (
   id uuid primary key default gen_random_uuid(),
   name text not null check (char_length(trim(name)) between 1 and 40),
   next_slip_number integer not null default 1 check (next_slip_number > 0),
@@ -23,6 +23,7 @@ create table if not exists public.warranty_records (
   item_name text not null,
   serial_number text,
   status text not null check (status in ('ongoing', 'claimed', 'pending', 'pickup')),
+  result_note text,
   received_on date not null,
   attachment_path text,
   created_at timestamptz not null default now(),
@@ -62,7 +63,8 @@ alter table public.warranty_records
 alter table public.warranty_records
   add column if not exists printed_slip_no text,
   add column if not exists contact_number text,
-  add column if not exists serial_number text;
+  add column if not exists serial_number text,
+  add column if not exists result_note text;
 
 create index if not exists warranty_records_branch_created_idx
   on public.warranty_records (branch_id, created_at desc);
@@ -221,7 +223,8 @@ create or replace function public.create_warranty_record(
   p_status text,
   p_received_on date,
   p_printed_slip_no text default null,
-  p_contact_number text default null
+  p_contact_number text default null,
+  p_result_note text default null
 )
 returns public.warranty_records
 language plpgsql
@@ -281,7 +284,7 @@ begin
   end if;
 
   insert into public.warranty_records (
-    branch_id, slip_no, printed_slip_no, customer_name, contact_number, item_name, status, received_on
+    branch_id, slip_no, printed_slip_no, customer_name, contact_number, item_name, status, result_note, received_on
   )
   values (
     p_branch_id,
@@ -291,6 +294,7 @@ begin
     nullif(trim(p_contact_number), ''),
     trim(p_item_name),
     p_status,
+    nullif(trim(p_result_note), ''),
     p_received_on
   )
   returning * into new_record;
@@ -299,8 +303,8 @@ begin
 end;
 $$;
 
-revoke all on function public.create_warranty_record(uuid, text, text, text, date, text, text) from public;
-grant execute on function public.create_warranty_record(uuid, text, text, text, date, text, text) to authenticated;
+revoke all on function public.create_warranty_record(uuid, text, text, text, date, text, text, text) from public;
+grant execute on function public.create_warranty_record(uuid, text, text, text, date, text, text, text) to authenticated;
 
 insert into storage.buckets (id, name, public)
 values ('warranty-slips', 'warranty-slips', false)
@@ -357,3 +361,4 @@ begin
   end if;
 end;
 $$;
+

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -224,6 +224,9 @@
     .form-input, .form-select {
       width: 100%; height: 41px; padding: 0 11px; border: 1px solid #e1e6ed;
       border-radius: 8px; outline: none; background: white; color: var(--ink); font-size: 12px;
+    }
+    textarea.form-input {
+      min-height: 82px; height: auto; padding-top: 10px; padding-bottom: 10px; resize: vertical;
     }
     .form-input:focus, .form-select:focus { border-color: #aaa4f2; box-shadow: 0 0 0 3px rgba(97, 88, 219, .1); }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -474,7 +477,7 @@
           <div class="auth-error" id="password-reset-error" role="alert" aria-live="polite"></div>
           <button class="scan-button startup-button" id="password-reset-submit" type="submit">Update password</button>
         </form>
-        <button class="startup-back" id="password-reset-back" type="button">← Back to sign in</button>
+        <button class="startup-back" id="password-reset-back" type="button">â† Back to sign in</button>
       </div>
       <div id="branch-step" hidden>
         <div class="startup-step">Signed in</div>
@@ -482,7 +485,7 @@
         <p class="startup-copy">Choose a branch to open its shared logbook.</p>
         <div class="branch-list" id="branch-list" aria-label="Available branches"></div>
         <button class="add-branch-button" id="show-add-branch" type="button">+ Add a branch</button>
-        <button class="startup-back" id="back-to-login" type="button">← Sign out</button>
+        <button class="startup-back" id="back-to-login" type="button">â† Sign out</button>
       </div>
       <div id="add-branch-step" hidden>
         <div class="startup-step">New workspace</div>
@@ -494,7 +497,7 @@
           <div class="auth-error" id="add-branch-error" role="alert" aria-live="polite"></div>
           <button class="scan-button startup-button" id="add-branch-submit" type="submit">Add branch</button>
         </form>
-        <button class="startup-back" id="cancel-add-branch" type="button">← Back to branches</button>
+        <button class="startup-back" id="cancel-add-branch" type="button">â† Back to branches</button>
       </div>
     </div>
   </section>
@@ -580,7 +583,7 @@
       <div class="modal-heading">
         <div>
           <h2 id="modal-title">Add a service slip</h2>
-          <p class="modal-description">Choose or photograph a completed slip. We’ll read the photo on this device and fill in what we can; check and correct every field before saving.</p>
+          <p class="modal-description">Choose or photograph a completed slip. Weâ€™ll read the photo on this device and fill in what we can; check and correct every field before saving.</p>
         </div>
         <button class="close-button" id="close-modal" type="button" aria-label="Close dialog">&times;</button>
       </div>
@@ -620,6 +623,8 @@
             <input class="form-input" id="date-input" name="date" type="date" required>
           </div>
         </div>
+        <label class="field-label" for="result-note-input">Result note</label>
+        <textarea class="form-input" id="result-note-input" name="resultNote" rows="3" placeholder="e.g. Tested working / For replacement / Repaired"></textarea>
         <div class="modal-actions">
           <button class="secondary-button" id="cancel-modal" type="button">Cancel</button>
           <button class="submit-button" id="save-record" type="submit">Add to logbook</button>
@@ -645,6 +650,8 @@
           <option value="pending">Purchased within 7 days (priority claim)</option>
           <option value="pickup">For pickup</option>
         </select>
+        <label class="field-label" for="edit-result-note">Result note (optional)</label>
+        <textarea class="form-input" id="edit-result-note" name="resultNote" rows="3" placeholder="e.g. Tested working / For replacement / Repaired"></textarea>
         <div class="modal-actions">
           <button class="secondary-button" id="cancel-status-edit" type="button">Cancel</button>
           <button class="submit-button" id="save-status" type="submit">Save status</button>
@@ -1061,6 +1068,7 @@
         contactNumber: row.contact_number || null,
         item: row.item_name,
         status: row.status,
+        resultNote: row.result_note || "",
         date: new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", year: "numeric" }).format(receivedOn),
         attachmentPath: row.attachment_path || null,
         attachmentUrl: null,
@@ -1072,7 +1080,7 @@
       if (!selectedBranch) return;
       const { data, error } = await supabaseClient
         .from("warranty_records")
-        .select("id, slip_no, printed_slip_no, customer_name, contact_number, item_name, status, received_on, attachment_path")
+        .select("id, slip_no, printed_slip_no, customer_name, contact_number, item_name, status, result_note, received_on, attachment_path")
         .eq("branch_id", selectedBranch.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -1208,7 +1216,7 @@
       const filtered = records.filter(record => {
         const matchesFilter = record.status === activeFilter;
         const statusLabel = isOverdue(record) ? "Overdue" : labels[record.status];
-        const matchesSearch = `${record.id} ${record.printedSlipNo || ""} ${record.customer} ${record.contactNumber || ""} ${record.item} ${statusLabel}`
+        const matchesSearch = `${record.id} ${record.printedSlipNo || ""} ${record.customer} ${record.contactNumber || ""} ${record.item} ${record.resultNote || ""} ${statusLabel}`
           .toLocaleLowerCase().includes(query);
         return matchesFilter && matchesSearch;
       });
@@ -1229,11 +1237,12 @@
       list.innerHTML = filtered.map(record => {
         const status = isOverdue(record) ? "overdue" : record.status;
         const statusLabel = status === "overdue" ? "Overdue" : labels[status];
+        const note = record.resultNote ? `<span class="ticket-date">Note: ${escapeHtml(record.resultNote)}</span>` : "";
         return `
           <article class="record-row">
             <span class="ticket">${escapeHtml(record.id)}<span class="ticket-date">${escapeHtml(record.date)}</span>${record.attachmentUrl ? `<a class="attachment-link" href="${escapeHtml(record.attachmentUrl)}" target="_blank" rel="noopener noreferrer">View slip</a>` : ""}</span>
             <span class="customer-name">${escapeHtml(record.customer)}${record.contactNumber ? `<span class="ticket-date">${escapeHtml(record.contactNumber)}</span>` : ""}</span>
-            <span class="product-name">${escapeHtml(record.item)}</span>
+            <span class="product-name">${escapeHtml(record.item)}${note}</span>
             <div class="status-actions">
               <span class="status-pill status-${status}">${statusLabel}</span>
               <button class="edit-status-button" type="button" data-edit-id="${escapeHtml(record.dbId)}" aria-label="Edit status for ${escapeHtml(record.id)}">Edit</button>
@@ -1296,6 +1305,7 @@
       editingRecordId = record.dbId;
       document.getElementById("status-modal-description").textContent = `Choose a new status for ${record.id}.`;
       document.getElementById("edit-status-select").value = record.status;
+      document.getElementById("edit-result-note").value = record.resultNote || "";
       statusModal.hidden = false;
       document.getElementById("edit-status-select").focus();
     });
@@ -1323,17 +1333,19 @@
       if (!record || !statusForm.reportValidity()) return;
       const submit = document.getElementById("save-status");
       const updatedStatus = document.getElementById("edit-status-select").value;
+      const updatedResultNote = document.getElementById("edit-result-note").value.trim();
       submit.disabled = true;
       try {
         const { error } = await supabaseClient
           .from("warranty_records")
-          .update({ status: updatedStatus })
+          .update({ status: updatedStatus, result_note: updatedResultNote || null })
           .eq("id", record.dbId)
           .eq("branch_id", selectedBranch.id)
           .select("id")
           .single();
         if (error) throw error;
         record.status = updatedStatus;
+        record.resultNote = updatedResultNote;
         renderCounts();
         renderRecords();
         showSyncSuccess("Status saved online.");
@@ -1815,7 +1827,7 @@
         ocrStatus.textContent = "Photo reading could not load. Check your connection, then reload or enter the details manually.";
         return;
       }
-      ocrStatus.textContent = "Preparing photo on this device…";
+      ocrStatus.textContent = "Preparing photo on this deviceâ€¦";
       saveRecordButton.disabled = true;
       let worker;
       try {
@@ -1823,7 +1835,7 @@
         worker = await window.Tesseract.createWorker("eng", 1, {
           logger: progress => {
             if (progress.status === "recognizing text" && Number.isFinite(progress.progress)) {
-              ocrStatus.textContent = `Reading photo on this device… ${Math.round(progress.progress * 100)}%`;
+              ocrStatus.textContent = `Reading photo on this deviceâ€¦ ${Math.round(progress.progress * 100)}%`;
             }
           }
         });
@@ -1934,7 +1946,8 @@
           p_status: data.get("status"),
           p_received_on: data.get("date"),
           p_printed_slip_no: data.get("printedSlipNo").trim() || null,
-          p_contact_number: data.get("contactNumber").trim() || null
+          p_contact_number: data.get("contactNumber").trim() || null,
+          p_result_note: data.get("resultNote").trim() || null
         });
         if (error) throw error;
         const savedRecord = mapRecord(Array.isArray(row) ? row[0] : row);
@@ -2005,3 +2018,10 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+
+

@@ -1,6 +1,6 @@
-# Warranty Logbook
+﻿# Warranty Logbook
 
-A responsive warranty logbook. The site uses Supabase for email/password sign-in, branch access, service records, and private slip attachments.
+A responsive warranty logbook. The site uses Supabase for email/password sign-in, branch access, service records, and private slip attachments. Use the Result note field on each service slip to record whether it was tested working, needs replacement, or was repaired.
 
 ## Supabase setup
 
@@ -15,8 +15,8 @@ The project URL and publishable browser key are configured in `index.html`. Publ
 ## Publish with GitHub Pages
 
 1. Create a GitHub repository named `warranty-logbook` and push these project files to its `main` branch.
-2. In the repository, open **Settings → Pages** and set the build and deployment source to **GitHub Actions**.
-3. The workflow in `.github/workflows/pages.yml` deploys the site after each push to `main`. GitHub shows the published URL in **Settings → Pages** and in the workflow run.
+2. In the repository, open **Settings â†’ Pages** and set the build and deployment source to **GitHub Actions**.
+3. The workflow in `.github/workflows/pages.yml` deploys the site after each push to `main`. GitHub shows the published URL in **Settings â†’ Pages** and in the workflow run.
 4. Add the published URL to Supabase Authentication URL settings, then open that URL and create your account.
 
 The site uses the same account on phone and computer. Supabase row-level security limits each account to branches it belongs to.
