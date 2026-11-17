@@ -1078,11 +1078,18 @@
 
     async function loadRecords() {
       if (!selectedBranch) return;
-      const { data, error } = await supabaseClient
+      let { data, error } = await supabaseClient
         .from("warranty_records")
         .select("id, slip_no, printed_slip_no, customer_name, contact_number, item_name, status, result_note, received_on, attachment_path")
         .eq("branch_id", selectedBranch.id)
         .order("created_at", { ascending: false });
+      if (error && ["42703", "PGRST204"].includes(error.code) && /result_note/i.test(error.message)) {
+        ({ data, error } = await supabaseClient
+          .from("warranty_records")
+          .select("id, slip_no, printed_slip_no, customer_name, contact_number, item_name, status, received_on, attachment_path")
+          .eq("branch_id", selectedBranch.id)
+          .order("created_at", { ascending: false }));
+      }
       if (error) throw error;
       records = (data || []).map(mapRecord);
       const attachmentErrors = [];
@@ -2018,7 +2025,6 @@
   </script>
 </body>
 </html>
-
 
 
 
