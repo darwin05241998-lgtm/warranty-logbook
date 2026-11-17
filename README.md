@@ -1,6 +1,6 @@
 ﻿# Warranty Logbook
 
-A responsive warranty logbook. The site uses Supabase for email/password sign-in, branch access, service records, and private slip attachments. Use the Result note field on each service slip to record whether it was tested working, needs replacement, or was repaired.
+A responsive warranty logbook. The site uses Supabase for email/password sign-in, branch access, service records, and private slip attachments. Choose an optional result for each service slip: Tested working, For replacement, Repaired, or For follow up.
 
 ## Supabase setup
 

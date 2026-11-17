@@ -623,8 +623,14 @@
             <input class="form-input" id="date-input" name="date" type="date" required>
           </div>
         </div>
-        <label class="field-label" for="result-note-input">Result note</label>
-        <textarea class="form-input" id="result-note-input" name="resultNote" rows="3" placeholder="e.g. Tested working / For replacement / Repaired"></textarea>
+        <label class="field-label" for="result-note-input">Result (optional)</label>
+        <select class="form-select" id="result-note-input" name="resultNote">
+          <option value="">Select a result</option>
+          <option value="Tested working">Tested working</option>
+          <option value="For replacement">For replacement</option>
+          <option value="Repaired">Repaired</option>
+          <option value="For follow up">For follow up</option>
+        </select>
         <div class="modal-actions">
           <button class="secondary-button" id="cancel-modal" type="button">Cancel</button>
           <button class="submit-button" id="save-record" type="submit">Add to logbook</button>
@@ -650,8 +656,14 @@
           <option value="pending">Purchased within 7 days (priority claim)</option>
           <option value="pickup">For pickup</option>
         </select>
-        <label class="field-label" for="edit-result-note">Result note (optional)</label>
-        <textarea class="form-input" id="edit-result-note" name="resultNote" rows="3" placeholder="e.g. Tested working / For replacement / Repaired"></textarea>
+        <label class="field-label" for="edit-result-note">Result (optional)</label>
+        <select class="form-select" id="edit-result-note" name="resultNote">
+          <option value="">Select a result</option>
+          <option value="Tested working">Tested working</option>
+          <option value="For replacement">For replacement</option>
+          <option value="Repaired">Repaired</option>
+          <option value="For follow up">For follow up</option>
+        </select>
         <div class="modal-actions">
           <button class="secondary-button" id="cancel-status-edit" type="button">Cancel</button>
           <button class="submit-button" id="save-status" type="submit">Save status</button>
@@ -1312,7 +1324,10 @@
       editingRecordId = record.dbId;
       document.getElementById("status-modal-description").textContent = `Choose a new status for ${record.id}.`;
       document.getElementById("edit-status-select").value = record.status;
-      document.getElementById("edit-result-note").value = record.resultNote || "";
+      const resultSelect = document.getElementById("edit-result-note");
+      resultSelect.value = [...resultSelect.options].some(option => option.value === record.resultNote)
+        ? record.resultNote
+        : "";
       statusModal.hidden = false;
       document.getElementById("edit-status-select").focus();
     });
@@ -1340,7 +1355,8 @@
       if (!record || !statusForm.reportValidity()) return;
       const submit = document.getElementById("save-status");
       const updatedStatus = document.getElementById("edit-status-select").value;
-      const updatedResultNote = document.getElementById("edit-result-note").value.trim();
+      const selectedResult = document.getElementById("edit-result-note").value;
+      const updatedResultNote = selectedResult || record.resultNote || "";
       submit.disabled = true;
       try {
         const { error } = await supabaseClient
@@ -1355,7 +1371,7 @@
         record.resultNote = updatedResultNote;
         renderCounts();
         renderRecords();
-        showSyncSuccess("Status saved online.");
+        showSyncSuccess("Status and result saved online.");
         closeStatusModal();
       } catch (error) {
         showSyncError("Could not update status", error);
@@ -2025,8 +2041,6 @@
   </script>
 </body>
 </html>
-
-
 
 
 
